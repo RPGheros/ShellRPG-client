@@ -9,3 +9,5 @@ class StatusLineState:
     hp_current: int
     hp_max: int
     tick_value: int
+    gold: int
+    hunger: str

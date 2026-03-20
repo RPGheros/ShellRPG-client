@@ -8,10 +8,17 @@ class CommandSpec:
     role_min: str = "player"
 
 BASE_COMMANDS: tuple[CommandSpec, ...] = (
-    CommandSpec("look", "Beschreibt die unmittelbare Umgebung."),
-    CommandSpec("inspect", "Vertieft die Sicht auf Ort, Ziel oder Spur."),
-    CommandSpec("walk", "Startet eine Reiseaktion oder einen Routenauftrag."),
+    CommandSpec("look", "Beschreibt die aktuelle Umgebung."),
+    CommandSpec("inspect", "Vertieft die Orts- und Pfadwahrnehmung."),
+    CommandSpec("walk <richtung>", "Bewegt dich zu einem benachbarten Tile."),
+    CommandSpec("walk route <ziel>", "Nutze eine benannte Kurzroute zu einer Stadt."),
+    CommandSpec("map", "Zeigt die aktuell bekannte Kartenlage."),
     CommandSpec("inventory", "Zeigt das aktuelle Inventar."),
+    CommandSpec("market", "Zeigt den lokalen Markt."),
+    CommandSpec("journal", "Zeigt die letzten Journal-Einträge."),
+    CommandSpec("gather", "Sammelt regionale Ressourcen."),
+    CommandSpec("hunt", "Startet eine kurze Jagdaktion."),
+    CommandSpec("explore", "Erkundet das aktuelle Tile intensiver."),
     CommandSpec("showcommands", "Listet sichtbare Befehle im aktuellen Kontext."),
 )
 

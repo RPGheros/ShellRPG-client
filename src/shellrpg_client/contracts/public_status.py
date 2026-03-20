@@ -9,3 +9,5 @@ class PublicCharacterStatus:
     location_label: str
     active_action: str
     tick_value: int
+    gold: int
+    hunger: str

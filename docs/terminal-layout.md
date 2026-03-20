@@ -1,13 +1,13 @@
-# Terminal Layout Foundations
+# Terminal Layout
 
-## Reihenfolge
-1. optionaler Media Layer
-2. permanente Statuszeile
-3. Event-/Logbereich
-4. Eingabe
+## Phase B
 
-## Prinzipien
-- Shell bleibt Shell
-- keine kritische Information nur im Media Layer
-- defensive Fallbacks
-- Gefahr und Aktion priorisieren
+Die Terminaldarstellung zeigt jetzt in jedem Snapshot:
+- permanente Statuszeile
+- letzte Servermeldung
+- bekannte Karte
+- Inventar
+- Markt
+- Journal
+
+Die Darstellung ist bewusst textlastig, damit der Slice in Bash, Zsh, PowerShell und CMD lesbar bleibt.

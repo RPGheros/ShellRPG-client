@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shellrpg-client"
-version = "0.0.1a"
-description = "Public shell-native foundations client for ShellRPG."
+version = "0.0.2"
+description = "Public shell-native Phase B client for ShellRPG."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
