@@ -1,9 +1,12 @@
 from shellrpg_client.commands.registry import visible_commands
 from shellrpg_client.render.fallbacks import MediaMode, choose_media_mode
 
-def test_visible_commands_include_walk() -> None:
+
+def test_visible_commands_include_phase_d_crafting_and_cube() -> None:
     names = [command.name for command in visible_commands()]
-    assert "walk <richtung>" in names
+    assert "socket weapon|armor|accessory <gem>" in names
+    assert "cube enter / cube leave / cube say <frage>" in names
+
 
 def test_fallback_selection_prefers_ansi_when_available() -> None:
     assert choose_media_mode(True, True, False, 80) == MediaMode.ANSI

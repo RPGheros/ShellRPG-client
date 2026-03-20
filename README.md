@@ -1,40 +1,40 @@
 # ShellRPG-client
 
-**Governance:** CLIENT-PUBLIC  
-**Visibility:** public  
-**Version:** `v0.0.2`
+**Governance:** `CLIENT-PUBLIC`  
+**Release:** `v0.3.0`  
+**Project version in TOML:** `0.3.0`
 
-Öffentlicher Terminal-Client für **Bauphase B / Vertical Slice**.
+## Rolle
+Öffentlicher Terminal-Client für denselben autoritativen Slice wie `ShellRPG-www`.
 
-## Neu in diesem Stand
-
-- `python -m shellrpg_client` funktioniert jetzt als echter Entrypoint
-- interaktiver Terminal-Loop gegen den autoritativen lokalen Demo-Server
-- Statuszeile, Karten-, Inventar-, Markt- und Journalausgabe
-- Command-Bridge zu `look`, `inspect`, `walk`, `gather`, `hunt`, `explore`
+## Highlights in v0.3.0
+- `python -m shellrpg_client` bleibt startbar
+- Live-Status für `hunt`, `gather`, `explore`
+- Reaktionsfenster im Kampf
+- Crafting-/Socketing-/Enchanting-/Soulforge-Befehle
+- Händlerbefehle
+- Kubus-Dialogmodus mit `cube>`-Prompt
+- GIF-Verlinkung passend zum aktuellen Tile oder Encounter
 
 ## Start
-
 ```bash
 python -m pip install -e .
 python -m shellrpg_client
 ```
 
-Optional mit Einzelbefehl:
-
+Mit alternativem Server:
 ```bash
-python -m shellrpg_client --command "walk east"
+python -m shellrpg_client --server http://127.0.0.1:8765
 ```
 
-## Voraussetzung
+## Kubus-Modus
+- `walk route cube`
+- `cube enter`
+- danach wird jede Eingabe automatisch an den Kubus weitergereicht
+- `/leave` oder `cube leave` beendet den Modus
 
-Der lokale Demo-Server aus `ShellRPG-server` muss laufen:
+## Medien
+Die GIF-Dateien liegen unter:
+- `media/gifs/`
 
-```bash
-python -m shellrpg_server
-```
-
-## Revisionshinweis
-
-- Foundations `0.0.1a` → **Phase B `0.0.2`** durch neue Funktionalität
-- der Entrypoint-Fix selbst wäre für sich genommen versionsneutral gewesen; der gleichzeitige Vertical Slice rechtfertigt die neue Version
+Fehlende Rich-Media-Unterstützung ist nicht spielkritisch; der Client bleibt voll textspielbar.

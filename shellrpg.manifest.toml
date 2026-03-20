@@ -1,7 +1,7 @@
 artifact_name = "ShellRPG-client"
 governance_layer = "CLIENT-PUBLIC"
 visibility = "public"
-version = "0.0.2"
+version = "0.3.0"
 artifact_role = "terminal client"
 release_policy = "fixes_do_not_bump_version"
 publicly_releasable = true

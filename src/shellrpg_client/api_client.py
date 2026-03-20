@@ -12,6 +12,9 @@ class ApiClient:
         with request.urlopen(f"{self.base_url}{path}") as response:
             return json.loads(response.read().decode("utf-8"))
 
+    def state(self) -> dict:
+        return self.get("/api/state")
+
     def post_command(self, command: str) -> dict:
         payload = json.dumps({"command": command}).encode("utf-8")
         req = request.Request(

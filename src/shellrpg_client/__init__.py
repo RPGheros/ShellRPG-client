@@ -1,3 +1,3 @@
-"""Public terminal Phase B client for ShellRPG."""
+"""Public terminal Phase D client for ShellRPG."""
 __all__ = ["__version__"]
-__version__ = "0.0.2"
+__version__ = "0.3.0"

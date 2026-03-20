@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
 
 @dataclass(frozen=True)
 class PublicCharacterStatus:
@@ -11,3 +12,6 @@ class PublicCharacterStatus:
     tick_value: int
     gold: int
     hunger: str
+    dialogue_mode: bool = False
+    dialogue_target: str = ""
+    combat_choices: list[str] = field(default_factory=list)
