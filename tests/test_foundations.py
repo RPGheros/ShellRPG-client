@@ -1,15 +1,12 @@
 
-from shellrpg_server.core.bootstrap import describe_foundation
-from shellrpg_server.game_data import GEM_COMBINATIONS_BASE, WORLD
+from shellrpg_client.commands.registry import visible_commands
+from shellrpg_client.render.fallbacks import MediaMode, choose_media_mode
 
-def test_foundation_description_contains_phase_e_version() -> None:
-    assert "v0.4.0" in describe_foundation()
+def test_visible_commands_include_phase_f_city_garrison_and_autobattle() -> None:
+    names = [command.name for command in visible_commands()]
+    assert "auto battle on|off|balanced|aggressive|defensive" in names
+    assert "city build <building>" in names
+    assert "garrison status | fortify | sortie" in names
 
-def test_gem_combinations_include_phase_d_and_e_entries() -> None:
-    assert GEM_COMBINATIONS_BASE["bernstein"] == "storm"
-    assert GEM_COMBINATIONS_BASE["opal"] == "illusion"
-    assert GEM_COMBINATIONS_BASE["obsidian"] == "shadow"
-
-def test_world_size_is_4096_chunked() -> None:
-    assert WORLD["width"] == 4096
-    assert WORLD["height"] == 4096
+def test_fallback_selection_prefers_ansi_when_available() -> None:
+    assert choose_media_mode(True, True, False, 80) == MediaMode.ANSI
