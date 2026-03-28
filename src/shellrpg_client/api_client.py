@@ -27,7 +27,20 @@ class ApiClient:
         self.device_id = device_id or self._local_device_id()
         self.available_auth_providers: list[dict] = []
         self.session_token = ""
+        self.last_live_event_id = 0
+        self.last_live_event_reason = ""
         self.login()
+
+    # Merkt sich die letzte serverseitige Live-Event-ID aus Snapshot- oder Steuerungsantworten fuer spaetere Client-Synchronisierung.
+    def _remember_live_event(self, payload: dict) -> None:
+        status = dict(payload.get("status", {})) if isinstance(payload, dict) else {}
+        live_id = status.get("live_event_id", payload.get("live_event_id", 0))
+        live_reason = status.get("live_event_reason", payload.get("live_event_reason", ""))
+        try:
+            self.last_live_event_id = max(self.last_live_event_id, int(live_id or 0))
+        except (TypeError, ValueError):
+            pass
+        self.last_live_event_reason = str(live_reason or self.last_live_event_reason)
 
     @staticmethod
     def _local_device_id() -> str:
@@ -66,6 +79,7 @@ class ApiClient:
         self.player_account_id = str(data.get("player_account_id", self.player_account_id))
         self.character_name = str(data.get("character_name", self.character_name))
         self.available_auth_providers = list(data.get("available_auth_providers", []))
+        self._remember_live_event(data)
 
     # Führt eine HTTP-Anfrage aus und versucht bei Sitzungsproblemen genau einen Rejoin.
     def _request(self, path: str, method: str = "GET", payload: dict | None = None) -> dict:
@@ -73,13 +87,17 @@ class ApiClient:
         req = request.Request(f"{self.base_url}{path}", data=data, headers=self._headers(), method=method)
         try:
             with request.urlopen(req) as response:
-                return json.loads(response.read().decode("utf-8"))
+                payload = json.loads(response.read().decode("utf-8"))
+                self._remember_live_event(payload)
+                return payload
         except Exception as first_error:
             self.login()
             req = request.Request(f"{self.base_url}{path}", data=data, headers=self._headers(), method=method)
             try:
                 with request.urlopen(req) as response:
-                    return json.loads(response.read().decode("utf-8"))
+                    payload = json.loads(response.read().decode("utf-8"))
+                    self._remember_live_event(payload)
+                    return payload
             except Exception as second_error:
                 raise ConnectionError(f"ShellRPG-Server antwortet nicht stabil: {second_error}") from second_error
 
@@ -121,3 +139,11 @@ class ApiClient:
     # Fordert einen sicheren Savepoint an, ohne den Server zum sofortigen Speichern zu zwingen.
     def request_safe_save(self) -> dict:
         return self._request("/api/save/request", "POST", {})
+
+    # Uebernimmt die aktive Steuerungsrolle fuer diese Sitzung explizit vom Server.
+    def take_control(self, reason: str = "terminal-manual-takeover") -> dict:
+        return self._request("/api/control/takeover", "POST", {"reason": reason})
+
+    # Gibt die aktive Steuerungsrolle fuer diese Sitzung wieder frei.
+    def release_control(self) -> dict:
+        return self._request("/api/control/release", "POST", {})

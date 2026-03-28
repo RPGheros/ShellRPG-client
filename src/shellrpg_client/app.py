@@ -56,6 +56,57 @@ CHARACTER_FACTIONS = ["Menschen", "Amazonen", "Waldelfen", "Dryaden", "Baumwesen
 CHARACTER_RACES = ["Mensch", "Nekari", "Ssarathi", "Salzlunge", "Waldelf", "Dryade", "Baumwesen"]
 CHARACTER_CLASSES = ["Ritter", "Totenbeschwörer", "Kleriker", "Waldläufer", "Magier", "Dieb", "Beastmaster"]
 CHARACTER_COMMAND_ALIASES = {"character", "char", "chars"}
+CONTROL_COMMAND_ALIASES = {"control", "controller"}
+OBSERVER_SAFE_COMMAND_PATTERNS = (
+    "showcommands",
+    "show commands",
+    "commands",
+    "help",
+    "look",
+    "inspect",
+    "map",
+    "inventory",
+    "equipment",
+    "buffs",
+    "quests",
+    "quest log",
+    "quests log",
+    "journal",
+    "lang",
+    "lang de",
+    "lang en",
+    "market",
+    "merchant",
+    "merchant list",
+    "brew menu",
+    "enchant menu",
+    "artifact",
+    "artifact weave",
+    "artifact weave cities",
+    "artifact weave buildings",
+    "artifact weave detailed",
+    "artifact weave conditions",
+    "rcon",
+    "rcon status",
+    "rcon ticks",
+    "rcon savepoint",
+    "rcon npcs",
+    "rcon weather",
+    "rcon recovery",
+    "rcon artifact",
+    "rcon npc opinion",
+    "rcon npc schedule",
+    "rcon rumor list",
+    "rcon quest inspect",
+    "npc",
+    "npc menu",
+    "city",
+    "city status",
+    "militia",
+    "militia status",
+    "garrison",
+    "garrison status",
+)
 INTRO_FRAME_DELAY = 0.18
 INTRO_SETTLE_DELAY = 0.28
 SCROLL_FRAME_DELAY = 0.09
@@ -468,6 +519,78 @@ def is_character_command(raw: str) -> bool:
     return raw.strip().split()[0].lower() in CHARACTER_COMMAND_ALIASES
 
 
+# Erkennt lokale Steuerungsbefehle fuer das explizite Controller-/Observer-Modell.
+def is_control_command(raw: str) -> bool:
+    if not raw:
+        return False
+    return raw.strip().split()[0].lower() in CONTROL_COMMAND_ALIASES
+
+
+# Normalisiert einen eingegebenen Befehl fuer lokale Alias- und Sicherheitspruefungen.
+def normalize_command_query(text: str) -> str:
+    return " ".join((text or "").strip().lower().replace("_", " ").split())
+
+
+# Findet den passendsten serverseitigen Command-Eintrag aus dem letzten Snapshot fuer einen lokalen Querystring.
+def find_command_detail(snapshot: dict[str, Any] | None, raw: str) -> dict[str, Any] | None:
+    if not snapshot:
+        return None
+    details = list(snapshot.get("command_details", []))
+    normalized = normalize_command_query(raw)
+    if not normalized:
+        return None
+    best: tuple[int, dict[str, Any]] | None = None
+    for entry in details:
+        aliases = list(entry.get("aliases", [])) or [entry.get("usage", "")]
+        for alias in aliases:
+            normalized_alias = normalize_command_query(alias)
+            if not normalized_alias:
+                continue
+            if normalized == normalized_alias or normalized.startswith(normalized_alias + " "):
+                score = len(normalized_alias)
+                if best is None or score > best[0]:
+                    best = (score, entry)
+    return best[1] if best else None
+
+
+# Prueft lokal, ob ein Spielkommando fuer Beobachter rein lesend und damit weiterhin erlaubt ist.
+def is_observer_safe_game_command(snapshot: dict[str, Any] | None, raw: str) -> bool:
+    normalized = normalize_command_query(raw)
+    if not normalized:
+        return True
+    if normalized == "help" or normalized.startswith("help "):
+        return True
+    detail = find_command_detail(snapshot, raw)
+    if detail is not None and bool(detail.get("observer_safe")):
+        return True
+    for pattern in OBSERVER_SAFE_COMMAND_PATTERNS:
+        if normalized == pattern or normalized.startswith(pattern + " "):
+            return True
+    return False
+
+
+# Ermittelt, ob diese Sitzung laut letztem Snapshot aktuell schreibend auf denselben Charakterzustand zugreifen darf.
+def control_write_allowed(snapshot: dict[str, Any] | None) -> bool:
+    if not snapshot:
+        return True
+    status = dict(snapshot.get("status", {}))
+    if not status.get("control_mode"):
+        return True
+    return bool(status.get("control_write_allowed", False))
+
+
+# Gibt fuer Beobachter eine einheitliche lokale Sperrmeldung aus, bevor ein Schreibpfad an den Server geht.
+def guard_observer_write(snapshot: dict[str, Any] | None, label: str) -> bool:
+    if control_write_allowed(snapshot):
+        return False
+    print(f"'{label}' ist fuer diese Sitzung aktuell read-only.")
+    if snapshot is not None:
+        print(format_control_status(snapshot))
+    print("Nutze 'control take', um diese Sitzung vor schreibenden Aktionen explizit zur aktiven Steuerung zu machen.")
+    return True
+
+
+# Zeigt die lokale Befehlsstruktur fuer die serverseitige Charakterverwaltung an.
 def character_command_tree() -> str:
     return "\n".join(
         [
@@ -566,6 +689,7 @@ def handle_character_command(
     raw: str,
     api: ApiClient,
     profile: dict[str, Any],
+    current_snapshot: dict[str, Any] | None = None,
     renderer: ReservedTerminalRenderer | None = None,
     cwd: Path | None = None,
 ) -> tuple[bool, dict[str, Any], dict[str, Any] | None]:
@@ -592,6 +716,9 @@ def handle_character_command(
             print(f"Charakterliste nicht verfügbar: {exc}")
         return True, sync_profile_identity(current_profile, api), None
     if action in {"new", "create"}:
+        live_snapshot = current_snapshot or api.state()
+        if guard_observer_write(live_snapshot, "character new"):
+            return True, sync_profile_identity(current_profile, api, snapshot=live_snapshot), live_snapshot
         payload = run_character_creation(
             str(current_profile.get("language", "de") or "de"),
             renderer=renderer,
@@ -624,6 +751,9 @@ def handle_character_command(
             print("Bitte gib einen Index, eine character_id oder einen Namen an.")
             print(character_command_tree())
             return True, sync_profile_identity(current_profile, api), None
+        live_snapshot = current_snapshot or api.state()
+        if guard_observer_write(live_snapshot, "character use"):
+            return True, sync_profile_identity(current_profile, api, snapshot=live_snapshot), live_snapshot
         try:
             overview = api.list_characters()
         except Exception as exc:
@@ -650,6 +780,113 @@ def handle_character_command(
     print(f"Unbekannter character-Unterbefehl: {action}")
     print(character_command_tree())
     return True, sync_profile_identity(current_profile, api), None
+
+
+# Uebersetzt die serverseitige Rollenkennung in eine lesbare Terminalbeschreibung.
+def describe_control_role(status: dict[str, Any]) -> str:
+    role = str(status.get("control_role", "") or "")
+    if role == "active-controller":
+        return "aktive Steuerung"
+    if role == "observer":
+        return "Beobachter"
+    return role or "unbekannt"
+
+
+# Baut eine kompakte Statusansicht fuer das explizite Controller-/Observer-Modell.
+def format_control_status(snapshot: dict[str, Any]) -> str:
+    status = dict(snapshot.get("status", {}))
+    lines = [
+        color("=== Steuerungsrolle ===", "36"),
+        f"Rolle: {describe_control_role(status)}",
+        f"Status: {status.get('control_state', 'free')}",
+        f"Modell: {status.get('control_mode', 'controller-observer')}",
+        f"Lease: {int(status.get('control_lease_seconds_left', 0))}s",
+    ]
+    holder = str(status.get("control_holder_label", "") or "")
+    action = str(status.get("control_action", "") or "")
+    if holder:
+        lines.append(f"Aktueller Halter: {holder}")
+    if action:
+        lines.append(f"Letzte Steuerungsaktion: {action}")
+    lines.append(f"Takeover moeglich: {'ja' if status.get('control_takeover_available') else 'nein'}")
+    lines.append(f"Freigabe moeglich: {'ja' if status.get('control_can_release') else 'nein'}")
+    return "\n".join(lines)
+
+
+# Zeigt die lokalen Terminalbefehle fuer das explizite Steuerungsmodell an.
+def control_command_tree() -> str:
+    return "\n".join(
+        [
+            color("=== Control Command Tree ===", "36"),
+            "control help",
+            "  Zeigt diese Steuerungsuebersicht an.",
+            "control status",
+            "  Zeigt, ob diese Sitzung aktive Steuerung oder Beobachter ist.",
+            "control take",
+            "  Uebernimmt die aktive Steuerung explizit fuer diese Sitzung.",
+            "control release",
+            "  Gibt die aktive Steuerung dieser Sitzung wieder frei.",
+        ]
+    )
+
+
+# Liefert die ausfuehrliche Hilfe zu den lokalen Steuerungsbefehlen des Clients.
+def control_command_help(topic: str = "") -> str:
+    normalized = topic.strip().lower()
+    help_map = {
+        "status": (
+            "control status\n"
+            "Liest den aktuellen serverseitigen Rollenstatus. Eine Sitzung ist entweder aktive Steuerung oder Beobachter."
+        ),
+        "take": (
+            "control take\n"
+            "Fordert die aktive Steuerung explizit fuer diese Terminal-Sitzung an. Andere Sitzungen werden dadurch zu Beobachtern."
+        ),
+        "takeover": (
+            "control take\n"
+            "Fordert die aktive Steuerung explizit fuer diese Terminal-Sitzung an. Andere Sitzungen werden dadurch zu Beobachtern."
+        ),
+        "release": (
+            "control release\n"
+            "Gibt die aktive Steuerung frei, damit das WWW oder eine andere Sitzung kontrolliert uebernehmen kann."
+        ),
+    }
+    if not normalized:
+        return control_command_tree()
+    return help_map.get(normalized, control_command_tree())
+
+
+# Behandelt die lokalen Steuerungsbefehle fuer aktives Uebernehmen oder Beobachten desselben Serverzustands.
+def handle_control_command(raw: str, api: ApiClient) -> tuple[bool, dict[str, Any] | None]:
+    if not is_control_command(raw):
+        return False, None
+    parts = raw.strip().split(maxsplit=2)
+    action = parts[1].lower() if len(parts) > 1 else "help"
+    if len(parts) > 2 and parts[2].strip().lower() in {"help", "--help", "-h", "?"}:
+        print(control_command_help(action))
+        return True, None
+    if action in {"help", "tree"}:
+        print(control_command_help(parts[2].strip() if len(parts) > 2 else ""))
+        return True, None
+    if action in {"status", "show"}:
+        snapshot = api.state()
+        print(format_control_status(snapshot))
+        return True, snapshot
+    if action in {"take", "takeover"}:
+        result = api.take_control()
+        print(result.get("message", "Steuerung uebernommen."))
+        snapshot = api.state()
+        print(format_control_status(snapshot))
+        return True, snapshot
+    if action in {"release", "free"}:
+        result = api.release_control()
+        print(result.get("message", "Steuerung freigegeben."))
+        snapshot = api.state()
+        print(format_control_status(snapshot))
+        return True, snapshot
+    print(f"Unbekannter control-Unterbefehl: {action}")
+    print(control_command_tree())
+    return True, None
 
 
 # Erkennt, ob der eingegebene Text als Spielkommando und nicht als normales Shell-Kommando behandelt werden soll.
@@ -776,6 +1013,9 @@ def maybe_render_media(renderer: str | None, media_file: str) -> str:
 def print_command_feedback(snapshot: dict, command: str, renderer: str | None) -> None:
     low = command.lower().strip()
     print(snapshot.get("message", ""))
+    if snapshot.get("control_conflict"):
+        print("Hinweis: Nutze 'control take', wenn diese Sitzung die aktive Steuerung explizit uebernehmen soll.")
+        print(format_control_status(snapshot))
     for chunk in snapshot.get("stream_chunks", []):
         print(chunk)
     if low.startswith(("map", "explore")):
@@ -843,6 +1083,10 @@ def main(argv: list[str] | None = None) -> int:
         else:
             profile = run_character_creation("de", renderer=renderer, cwd=current_cwd)
         try:
+            bootstrap_control = api.state()
+            if not control_write_allowed(bootstrap_control):
+                takeover = api.take_control("terminal-bootstrap-character-create")
+                print(takeover.get("message", "Steuerung fuer die Charaktererstellung uebernommen."))
             api.create_character(profile)
             profile["player_account_id"] = api.player_account_id
             profile["device_id"] = api.device_id
@@ -864,13 +1108,29 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command:
         if is_character_command(args.command):
-            handled, profile, snapshot = handle_character_command(args.command, api, profile, renderer=renderer, cwd=current_cwd)
+            handled, profile, snapshot = handle_character_command(
+                args.command,
+                api,
+                profile,
+                current_snapshot=context.snapshot,
+                renderer=renderer,
+                cwd=current_cwd,
+            )
             if handled:
                 if snapshot is not None:
                     context.snapshot = snapshot
                 profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
                 write_profile(profile)
                 return 0
+        handled, snapshot = handle_control_command(args.command, api)
+        if handled:
+            if snapshot is not None:
+                context.snapshot = snapshot
+                profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
+                write_profile(profile)
+            return 0
+        if is_game_command(args.command) and not is_observer_safe_game_command(context.snapshot, args.command) and guard_observer_write(context.snapshot, args.command):
+            return 0
         snapshot = api.post_command(args.command)
         print_command_feedback(snapshot, args.command, detect_media_renderer())
         return 0
@@ -890,7 +1150,14 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if not raw:
             continue
-        handled, profile, snapshot = handle_character_command(raw, api, profile, renderer=renderer, cwd=cwd)
+        handled, profile, snapshot = handle_character_command(
+            raw,
+            api,
+            profile,
+            current_snapshot=context.snapshot,
+            renderer=renderer,
+            cwd=cwd,
+        )
         if handled:
             if snapshot is not None:
                 context.snapshot = snapshot
@@ -898,7 +1165,17 @@ def main(argv: list[str] | None = None) -> int:
             profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
             write_profile(profile)
             continue
+        control_handled, snapshot = handle_control_command(raw, api)
+        if control_handled:
+            if snapshot is not None:
+                context.snapshot = snapshot
+                context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
+                profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
+                write_profile(profile)
+            continue
         if is_game_command(raw):
+            if not is_observer_safe_game_command(context.snapshot, raw) and guard_observer_write(context.snapshot, raw):
+                continue
             snapshot = api.post_command(raw)
             context.snapshot = snapshot
             context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
