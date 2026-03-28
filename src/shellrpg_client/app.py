@@ -38,13 +38,18 @@ from shellrpg_client.ui import (
 HEADER_ROWS = 4
 PROFILE_PATH = Path.home() / ".shellrpg-client-profile.json"
 GAME_VERBS = {
-    "look", "inspect", "walk", "explore", "hunt", "gather", "inventory", "equip", "use", "trade", "party",
-    "faction", "map", "quest", "pet", "help", "showcommands", "attack", "guard", "dodge", "cast", "summon",
-    "npc", "artifact", "city", "garrison", "militia", "rcon", "market", "journal", "brew", "enchant", "craft",
-    "townfolk", "server", "recovery", "weather", "auto", "book", "weave", "dialogue", "talk", "service",
+    "look", "inspect", "walk", "explore", "hunt", "gather", "map", "inventory", "equipment", "buffs", "quests",
+    "equip", "use", "read", "book", "lang", "help", "showcommands", "show", "commands", "attack", "guard", "dodge", "cast",
+    "auto", "market", "merchant", "buy", "sell", "craft", "socket", "enchant", "brew", "soul", "soulforge",
+    "cube", "city", "militia", "garrison", "faction", "npc", "artifact", "rcon", "journal", "trade", "party",
+    "quest", "pet", "summon", "townfolk", "server", "recovery", "weather", "weave", "dialogue", "talk", "service",
 }
 ANSI = "\x1b["
 SPINNERS = ["● ○ ○ ○ ○", "● ● ○ ○ ○", "● ● ● ○ ○", "● ● ● ● ○", "● ● ● ● ●"]
+CHARACTER_FACTIONS = ["Menschen", "Amazonen", "Waldelfen", "Dryaden", "Baumwesen", "Nekari", "Ssarathi", "Salzlungen", "Orks", "Dämonen"]
+CHARACTER_RACES = ["Mensch", "Nekari", "Ssarathi", "Salzlunge", "Waldelf", "Dryade", "Baumwesen"]
+CHARACTER_CLASSES = ["Ritter", "Totenbeschwörer", "Kleriker", "Waldläufer", "Magier", "Dieb", "Beastmaster"]
+CHARACTER_COMMAND_ALIASES = {"character", "char", "chars"}
 
 
 # Aktiviert unter Windows nach Möglichkeit ANSI-Escapes für Cursorbewegung und Farben.
@@ -237,9 +242,9 @@ def allocate_attributes(points: int = 12) -> dict[str, int]:
 def run_character_creation(default_language: str = "de") -> dict[str, Any]:
     print(color("=== Charaktererstellung ===", "33"))
     name = ask_name()
-    faction = choose_from_list("Wähle deine Fraktion:", ["Menschen", "Amazonen", "Waldelfen", "Dryaden", "Baumwesen", "Nekari", "Ssarathi", "Salzlungen", "Orks", "Dämonen"])
-    race = choose_from_list("Wähle deine Rasse:", ["Mensch", "Nekari", "Ssarathi", "Salzlunge", "Waldelf", "Dryade", "Baumwesen"])
-    clazz = choose_from_list("Wähle deine Kampfklasse:", ["Ritter", "Totenbeschwörer", "Kleriker", "Waldläufer", "Magier", "Dieb", "Beastmaster"])
+    faction = choose_from_list("Wähle deine Fraktion:", CHARACTER_FACTIONS)
+    race = choose_from_list("Wähle deine Rasse:", CHARACTER_RACES)
+    clazz = choose_from_list("Wähle deine Kampfklasse:", CHARACTER_CLASSES)
     attrs = allocate_attributes(12)
     return {
         "character_name": name,
@@ -249,6 +254,190 @@ def run_character_creation(default_language: str = "de") -> dict[str, Any]:
         "attributes": attrs,
         "language": default_language,
     }
+
+
+def is_character_command(raw: str) -> bool:
+    if not raw:
+        return False
+    return raw.strip().split()[0].lower() in CHARACTER_COMMAND_ALIASES
+
+
+def character_command_tree() -> str:
+    return "\n".join(
+        [
+            color("=== Character Command Tree ===", "36"),
+            "character help",
+            "  Zeigt diese Befehlsübersicht an.",
+            "character list",
+            "  Listet alle Charaktere des aktuellen Accounts auf.",
+            "character new",
+            "  Startet die lokale Charaktererstellung und aktiviert den neuen Charakter sofort.",
+            "character use <index|character_id|name>",
+            "  Wechselt den aktiven Charakter für denselben serverseitigen Account.",
+        ]
+    )
+
+
+def character_command_help(topic: str = "") -> str:
+    normalized = topic.strip().lower()
+    help_map = {
+        "list": "character list\nZeigt alle serverseitig bekannten Charaktere deines aktuellen Accounts an. Markiert wird auch, welcher Charakter gerade aktiv ist und damit sowohl im Terminal als auch im WWW denselben Zustand liefert.",
+        "new": "character new\nStartet die lokale Charaktererstellung im Terminal. Nach erfolgreicher Erstellung wird der neue Charakter sofort auf dem ShellRPG-server aktiviert und beide Interfaces sehen denselben neuen Zustand.",
+        "create": "character new\nStartet die lokale Charaktererstellung im Terminal. Nach erfolgreicher Erstellung wird der neue Charakter sofort auf dem ShellRPG-server aktiviert und beide Interfaces sehen denselben neuen Zustand.",
+        "use": "character use <index|character_id|name>\nWechselt den aktiven Charakter innerhalb desselben Accounts. Du kannst dafuer entweder die Listenposition, die character_id oder den exakten Namen aus der Charakterliste verwenden.",
+        "select": "character use <index|character_id|name>\nWechselt den aktiven Charakter innerhalb desselben Accounts. Du kannst dafuer entweder die Listenposition, die character_id oder den exakten Namen aus der Charakterliste verwenden.",
+        "switch": "character use <index|character_id|name>\nWechselt den aktiven Charakter innerhalb desselben Accounts. Du kannst dafuer entweder die Listenposition, die character_id oder den exakten Namen aus der Charakterliste verwenden.",
+    }
+    if not normalized:
+        return character_command_tree()
+    return help_map.get(normalized, character_command_tree())
+
+
+def sync_profile_identity(
+    profile: dict[str, Any],
+    api: ApiClient,
+    snapshot: dict[str, Any] | None = None,
+    selected_entry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    updated = dict(profile)
+    updated["character_name"] = api.character_name
+    updated["player_account_id"] = api.player_account_id
+    updated["device_id"] = api.device_id
+    if selected_entry:
+        for key in ["faction", "race_name", "class_name"]:
+            value = selected_entry.get(key)
+            if value:
+                updated[key] = value
+    if snapshot:
+        status = dict(snapshot.get("status", {}))
+        for key in ["character_name", "race_name", "class_name", "language"]:
+            value = status.get(key)
+            if value:
+                updated[key] = value
+    return updated
+
+
+def format_character_overview(overview: dict[str, Any]) -> str:
+    if not overview.get("ok"):
+        return overview.get("message", "Charakterliste konnte nicht geladen werden.")
+    entries = list(overview.get("entries", []))
+    header = [
+        color("=== Charaktere ===", "36"),
+        f"Account: {overview.get('player_account_id', 'unbekannt')}",
+    ]
+    if not entries:
+        header.append("Noch keine Charaktere im Account vorhanden.")
+        return "\n".join(header)
+    for idx, entry in enumerate(entries, start=1):
+        marker = "*" if entry.get("active") else "-"
+        header.append(
+            f"{marker} {idx}. {entry.get('character_name', '?')} [{entry.get('character_id', '?')}] "
+            f"· {entry.get('class_name', '?')}/{entry.get('race_name', '?')} "
+            f"· {entry.get('faction', '?')} · Lvl {entry.get('level', '?')} · {entry.get('coords_label', '?')}"
+        )
+    return "\n".join(header)
+
+
+def resolve_character_selection(selector: str, entries: list[dict[str, Any]]) -> dict[str, Any] | None:
+    token = selector.strip()
+    if not token:
+        return None
+    if token.isdigit():
+        index = int(token)
+        if 1 <= index <= len(entries):
+            return entries[index - 1]
+    for entry in entries:
+        if entry.get("character_id") == token:
+            return entry
+    lowered = token.casefold()
+    for entry in entries:
+        if str(entry.get("character_name", "")).casefold() == lowered:
+            return entry
+    return None
+
+
+def handle_character_command(
+    raw: str,
+    api: ApiClient,
+    profile: dict[str, Any],
+) -> tuple[bool, dict[str, Any], dict[str, Any] | None]:
+    if not is_character_command(raw):
+        return False, profile, None
+    current_profile = dict(profile)
+    parts = raw.strip().split(maxsplit=2)
+    action = parts[1].lower() if len(parts) > 1 else "help"
+    if len(parts) > 2 and parts[2].strip().lower() in {"help", "--help", "-h", "?"}:
+        print(character_command_help(action))
+        return True, sync_profile_identity(current_profile, api), None
+    if action in {"help", "tree"}:
+        topic = parts[2].strip() if len(parts) > 2 else ""
+        print(character_command_help(topic))
+        try:
+            print(format_character_overview(api.list_characters()))
+        except Exception as exc:
+            print(f"Charakterliste nicht verfügbar: {exc}")
+        return True, sync_profile_identity(current_profile, api), None
+    if action in {"list", "ls"}:
+        try:
+            print(format_character_overview(api.list_characters()))
+        except Exception as exc:
+            print(f"Charakterliste nicht verfügbar: {exc}")
+        return True, sync_profile_identity(current_profile, api), None
+    if action in {"new", "create"}:
+        payload = run_character_creation(str(current_profile.get("language", "de") or "de"))
+        try:
+            result = api.create_character(payload)
+            if not result.get("ok"):
+                print(result.get("message", "Charaktererstellung fehlgeschlagen."))
+                return True, sync_profile_identity(current_profile, api), None
+            snapshot = api.state()
+        except Exception as exc:
+            print(f"Charaktererstellung fehlgeschlagen: {exc}")
+            return True, sync_profile_identity(current_profile, api), None
+        current_profile.update(payload)
+        current_profile = sync_profile_identity(current_profile, api, snapshot=snapshot)
+        print(
+            result.get(
+                "message",
+                f"Charakter {result.get('character_name', api.character_name)} wurde erstellt und aktiviert.",
+            )
+        )
+        try:
+            print(format_character_overview(api.list_characters()))
+        except Exception:
+            pass
+        return True, current_profile, snapshot
+    if action in {"use", "select", "switch"}:
+        if len(parts) < 3:
+            print("Bitte gib einen Index, eine character_id oder einen Namen an.")
+            print(character_command_tree())
+            return True, sync_profile_identity(current_profile, api), None
+        try:
+            overview = api.list_characters()
+        except Exception as exc:
+            print(f"Charakterliste nicht verfügbar: {exc}")
+            return True, sync_profile_identity(current_profile, api), None
+        entry = resolve_character_selection(parts[2], list(overview.get("entries", [])))
+        if entry is None:
+            print("Charakterauswahl nicht gefunden.")
+            print(format_character_overview(overview))
+            return True, sync_profile_identity(current_profile, api), None
+        try:
+            result = api.select_character(str(entry.get("character_id", "")))
+            snapshot = api.state()
+        except Exception as exc:
+            print(f"Charakterwechsel fehlgeschlagen: {exc}")
+            return True, sync_profile_identity(current_profile, api), None
+        current_profile = sync_profile_identity(current_profile, api, snapshot=snapshot, selected_entry=entry)
+        print(result.get("message", f"Aktiver Charakter ist jetzt {api.character_name}."))
+        try:
+            print(format_character_overview(api.list_characters()))
+        except Exception:
+            pass
+        return True, current_profile, snapshot
+    print(f"Unbekannter character-Unterbefehl: {action}")
+    print(character_command_tree())
+    return True, sync_profile_identity(current_profile, api), None
 
 
 # Erkennt, ob der eingegebene Text als Spielkommando und nicht als normales Shell-Kommando behandelt werden soll.
@@ -429,9 +618,16 @@ def main(argv: list[str] | None = None) -> int:
     run_fake_boot(args.skip_intro)
     profile = None if args.new_character else read_profile()
     provisional_name = (profile or {}).get("character_name", "Neowulf")
+    player_account_id = str((profile or {}).get("player_account_id", ""))
+    device_id = str((profile or {}).get("device_id", ""))
 
     try:
-        api = ApiClient(args.server, character_name=provisional_name)
+        api = ApiClient(
+            args.server,
+            character_name=provisional_name,
+            player_account_id=player_account_id,
+            device_id=device_id or None,
+        )
     except Exception as exc:
         print(f"Server nicht erreichbar / Server unreachable: {exc}")
         print(r"PowerShell-Aktivierung: .\.venv\Scripts\Activate.ps1")
@@ -452,15 +648,12 @@ def main(argv: list[str] | None = None) -> int:
             profile = run_character_creation("de")
         try:
             api.create_character(profile)
+            profile["player_account_id"] = api.player_account_id
+            profile["device_id"] = api.device_id
             write_profile(profile)
         except Exception as exc:
             print(f"Charaktererstellung fehlgeschlagen: {exc}")
             return 1
-    else:
-        try:
-            api.create_character(profile)
-        except Exception:
-            pass
 
     try:
         bootstrap = api.state()
@@ -468,12 +661,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Serverzustand konnte nicht geladen werden: {exc}")
         return 1
 
+    profile = sync_profile_identity(dict(profile or {"character_name": api.character_name}), api, snapshot=bootstrap)
+    write_profile(profile)
+
     context = LiveContext(snapshot=bootstrap)
     renderer = HeaderRenderer(HEADER_ROWS)
     renderer.reserve()
     renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
 
     if args.command:
+        if is_character_command(args.command):
+            handled, profile, snapshot = handle_character_command(args.command, api, profile)
+            if handled:
+                if snapshot is not None:
+                    context.snapshot = snapshot
+                profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
+                write_profile(profile)
+                return 0
         snapshot = api.post_command(args.command)
         print_command_feedback(snapshot, args.command, detect_media_renderer())
         return 0
@@ -491,6 +695,15 @@ def main(argv: list[str] | None = None) -> int:
                 print("Sitzung beendet.")
                 return 0
             if not raw:
+                continue
+            handled, profile, snapshot = handle_character_command(raw, api, profile)
+            if handled:
+                if snapshot is not None:
+                    context.snapshot = snapshot
+                profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
+                write_profile(profile)
+                renderer.reserve()
+                renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
                 continue
             if is_game_command(raw):
                 snapshot = api.post_command(raw)
