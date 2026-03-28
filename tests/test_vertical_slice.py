@@ -1,26 +1,24 @@
+from pathlib import Path
 
-from shellrpg_server.core.engine import GameEngine
+from shellrpg_client.api_client import ApiClient
+from shellrpg_client.app import run_shell_command
 
-def test_walk_route_cube_and_enter_dialogue():
-    engine = GameEngine.create_demo()
-    result = engine.execute("walk route cube")
-    assert result.ok is True
-    assert result.status.location_label == "Schwarzer Kubus"
-    dialog = engine.execute("cube enter")
-    assert dialog.status.dialogue_mode is True
 
-def test_cube_ultimate_question_returns_42():
-    engine = GameEngine.create_demo()
-    engine.execute("walk route cube")
-    engine.execute("cube enter")
-    result = engine.execute("die endgültige Frage nach dem Leben, dem Universum und dem ganzen Rest?")
-    assert result.message.strip() == "42"
+def test_api_headers_include_session_token_when_present() -> None:
+    client = object.__new__(ApiClient)
+    client.session_token = "token-123"
+    assert client._headers()["X-Session-Token"] == "token-123"
 
-def test_crafting_and_socketing_work():
-    engine = GameEngine.create_demo()
-    craft = engine.execute("craft --item sword --material iron")
-    assert craft.ok is True
-    engine.execute("equip iron sword")
-    socket = engine.execute("socket --slot weapon --gem ruby shard")
-    assert socket.ok is True
-    assert engine.player.weapon_affixes
+
+def test_run_shell_command_changes_directory_locally() -> None:
+    cwd = Path.cwd()
+    next_cwd, output = run_shell_command("cd ..", cwd)
+    assert next_cwd == cwd.parent.resolve()
+    assert output == str(cwd.parent.resolve())
+
+
+def test_run_shell_command_reports_missing_directory() -> None:
+    cwd = Path.cwd()
+    next_cwd, output = run_shell_command("cd does-not-exist-shellrpg", cwd)
+    assert next_cwd == cwd
+    assert "Pfad nicht gefunden" in output

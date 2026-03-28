@@ -12,7 +12,7 @@ Deutsch | [English](README.en.md)
 
 ## 1. Beschreibung
 
-**Artefaktrolle:** Öffentlicher Terminal-Client für ShellRPG mit Shell-Eingabe, Statuszeile, Ereignislog, Kartenansicht, Standalone-Modus und Medien-Fallbacks.
+**Artefaktrolle:** Öffentlicher Terminal-Client für ShellRPG mit Shell-Eingabe, Statuszeile, Ereignislog, Kartenansicht und Medien-Fallbacks.
 
 **Zweck:** Dieses Artefakt ist für die direkte Interaktion in Bash, Zsh, PowerShell oder kompatiblen Terminals gedacht. Es sendet Befehle an den Server und rendert den Rückkanal in einer shellfreundlichen Oberfläche.
 
@@ -42,10 +42,7 @@ python -m pip install -e .
 python -m shellrpg_client
 ```
 
-Standalone-Modus:
-```bash
-python -m shellrpg_client --standalone
-```
+Der dedizierte Browserzugang läuft getrennt über `ShellRPG-www`.
 
 ## 4. Feedback & Contribution
 

@@ -12,7 +12,7 @@
 
 ## 1. Description
 
-**Artifact role:** Public terminal client for ShellRPG with shell input, status line, event log, map view, standalone mode, and media fallbacks.
+**Artifact role:** Public terminal client for ShellRPG with shell input, status line, event log, map view, and media fallbacks.
 
 **Purpose:** This artifact is meant for direct interaction in Bash, Zsh, PowerShell, or compatible terminals. It sends commands to the server and renders the response in a shell-friendly interface.
 
@@ -42,10 +42,7 @@ python -m pip install -e .
 python -m shellrpg_client
 ```
 
-Standalone mode:
-```bash
-python -m shellrpg_client --standalone
-```
+The dedicated browser surface is provided separately by `ShellRPG-www`.
 
 ## 4. Feedback & Contribution
 

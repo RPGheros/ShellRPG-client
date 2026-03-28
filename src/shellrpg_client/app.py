@@ -12,9 +12,7 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from dataclasses import dataclass
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -402,25 +400,6 @@ def print_command_feedback(snapshot: dict, command: str, renderer: str | None) -
         print(media_preview)
 
 
-# Startet einen eingebetteten WWW-Server für den Standalone-Modus und öffnet ihn im Browser.
-def start_embedded_www(port: int) -> tuple[ThreadingHTTPServer, threading.Thread]:
-    web_root = Path(__file__).resolve().parent / "embedded_www"
-
-    class Handler(SimpleHTTPRequestHandler):
-        # Liefert die eingebetteten Webdateien aus und unterdrückt Standard-Logging im Client.
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(web_root), **kwargs)
-
-        # Unterdrückt das übliche HTTP-Logging im lokalen Standalone-Dashboard.
-        def log_message(self, format, *args):
-            return
-
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    return httpd, thread
-
-
 # Aktualisiert den kompakten Header im Hintergrund sekündlich, während der Benutzer am Prompt arbeiten kann.
 def start_live_monitor(api: ApiClient, context: LiveContext, renderer: HeaderRenderer, stop_event: threading.Event) -> threading.Thread:
     def monitor() -> None:
@@ -443,8 +422,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=f"ShellRPG terminal Phase {RELEASE_VERSION} client")
     parser.add_argument("--server", default="http://127.0.0.1:8765", help="Basis-URL des ShellRPG-Servers.")
     parser.add_argument("--command", help="Führt genau ein Spielkommando aus und beendet sich dann.")
-    parser.add_argument("--standalone", action="store_true", help="Startet das eingebettete WWW-Dashboard und öffnet es im Browser.")
-    parser.add_argument("--standalone-port", default=8088, type=int)
     parser.add_argument("--skip-intro", action="store_true", help="Überspringt Intro und Fake-Boot, nützlich für Tests.")
     parser.add_argument("--new-character", action="store_true", help="Erzwingt die Charaktererstellung auch dann, wenn bereits ein Profil existiert.")
     args = parser.parse_args(argv)
@@ -458,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"Server nicht erreichbar / Server unreachable: {exc}")
         print(r"PowerShell-Aktivierung: .\.venv\Scripts\Activate.ps1")
-        print("Starte zuerst: python -m shellrpg_server")
+        print("Starte zuerst den privaten ShellRPG-server oder nutze den dedizierten Webzugang ueber ShellRPG-www.")
         return 1
 
     if profile is None or args.new_character:
@@ -491,15 +468,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Serverzustand konnte nicht geladen werden: {exc}")
         return 1
 
-    httpd = None
-    if args.standalone:
-        httpd, _ = start_embedded_www(args.standalone_port)
-        try:
-            webbrowser.open(f"http://127.0.0.1:{args.standalone_port}/public/index.html", new=2)
-        except Exception:
-            pass
-        print(f"Standalone-Dashboard aktiv auf http://127.0.0.1:{args.standalone_port}/public/index.html")
-
     context = LiveContext(snapshot=bootstrap)
     renderer = HeaderRenderer(HEADER_ROWS)
     renderer.reserve()
@@ -508,8 +476,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.command:
         snapshot = api.post_command(args.command)
         print_command_feedback(snapshot, args.command, detect_media_renderer())
-        if httpd:
-            httpd.shutdown()
         return 0
 
     cwd = Path.cwd()
@@ -540,5 +506,3 @@ def main(argv: list[str] | None = None) -> int:
             renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
     finally:
         stop_event.set()
-        if httpd:
-            httpd.shutdown()
