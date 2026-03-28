@@ -1,48 +1,56 @@
+<!-- ShellRPG Comment Banner | Revisionsänderung: Start-/Windows-/Timezone-Fix -->
+Deutsch | [English](README.en.md)
 
-# ShellRPG-server · v0.4.0
+🏛️☠️🌿                                                                 🌿☠️🏛️
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  _/\______________________________________________________________/\\_     ║
+║  \_/\\                                                            /\_/     ║
+║  /_/\\   A U F G E R O L L T E   S C H R I F T R O L L E         /\_\     ║
+║  \_\/____________________________________________________________\/_/     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+# ShellRPG-client · v0.7.6
 
-**Governance:** SERVER-PRIVAT  
-**Visibility:** owner-only / proprietär  
-**Phase:** E — Stadtgründung, Gouverneur, 5 Generäle, Miliz-/Garnisonslogik, überarbeitetes Kampf- und Auto-Battle-System
+## 1. Beschreibung
 
-## Enthalten
-- autoritativer lokaler Demo-Server auf `http://127.0.0.1:8765`
-- 4096×4096-Chunk-Weltgrundlage
-- Hybridkampf: Welt in Ticks, Kampf in Runden mit Reaktionsfenstern
-- Auto-Battle (`auto battle on|off|balanced|aggressive|defensive`)
-- Crafting / Socketing / Enchanting / Seelenstein-Schmiede
-- Händlerbefehle
-- Stadtgründung
-- Gouverneur + 5 Generäle
-- Milizrekrutierung
-- Tile-Buildings mit Kosten, Outputs, Konflikthinweisen
-- schwarzer Kubus mit serverseitigem Proxy und Offline-Fallback
+**Artefaktrolle:** Öffentlicher Terminal-Client für ShellRPG mit Shell-Eingabe, Statuszeile, Ereignislog, Kartenansicht, Standalone-Modus und Medien-Fallbacks.
 
-## Start
+**Zweck:** Dieses Artefakt ist für die direkte Interaktion in Bash, Zsh, PowerShell oder kompatiblen Terminals gedacht. Es sendet Befehle an den Server und rendert den Rückkanal in einer shellfreundlichen Oberfläche.
+
+**Verknüpfte Artefakte:**
+- `ShellRPG-server` ist die autoritative Datenquelle.
+- `ShellRPG-www` ist der grafische Schwester-Client für denselben Serverzustand.
+- `ShellRPG-wiki` erklärt Befehle, Systeme und Begriffe für Nutzerinnen und Nutzer.
+
+**Governance:** `CLIENT-PUBLIC`
+
+## 2. Abhängigkeiten
+
+- Python 3.11 oder neuer
+- pip
+- laufender `ShellRPG-server` empfohlen
+- Truecolor/ANSI optional, mit Fallback auf einfachere Darstellung
+
+## 3. Installation
+
 ```bash
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1  # PowerShell
+# Alternativ in CMD: .venv\Scripts\activate.bat
+# Alternativ in Bash/Zsh: source .venv/bin/activate
+python -m pip install --upgrade pip
 python -m pip install -e .
-python -m shellrpg_server
+python -m shellrpg_client
 ```
 
-## Wichtige Testkommandos
-```text
-craft --item sword --material iron
-equip iron sword
-socket --slot weapon --gem ruby shard
-enchant --slot weapon
-auto battle on aggressive
-city found Morgenwacht
-city appoint governor Cassian
-city appoint general 1 Varek
-city build trade hall
-militia recruit swordfighters 2
-walk route cube
-cube enter
+Standalone-Modus:
+```bash
+python -m shellrpg_client --standalone
 ```
 
-## Revisionsregel
-Reine Bug-/Build-Fixes erhöhen die Version nicht.  
-Diese Revision enthält neue funktionale Systeme und ist daher als **0.4.0 / v0.4.0** markiert.
+## 4. Feedback & Contribution
 
-## Redaktionsgrenze
-Diese README erklärt Betrieb und Oberfläche des Demo-Slices, aber keine sensiblen Sicherheits- oder Integritätsheuristiken.
+Feedback sollte immer das Terminalprofil, das Betriebssystem und den ausgeführten Befehl mit angeben.
+Contribution ist willkommen, solange die Shell-Integrität, Fallback-Kette und Public/Private-Trennung gewahrt bleiben.
+UI-Änderungen müssen möglichst in Deutsch und Englisch nachvollziehbar bleiben.
+
+🏛️🌿☠️══════════════════════════════════════════════════════════════☠️🌿🏛️

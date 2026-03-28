@@ -1,0 +1,85 @@
+# =============================================
+# ShellRPG-client .gitignore
+# =============================================
+
+# --- OpenAI / Codex / Agent-Dateien ---
+.codex/
+**/.codex/
+
+# --- Build / generierte Nicht-Source-Dateien ---
+.build/
+dist/
+build/
+out/
+coverage/
+.cache/
+.tmp/
+tmp/
+*.tmp
+*.cache
+*.lock
+
+# --- Node / TypeScript / Frontend ---
+node_modules/
+.npm/
+.pnpm-store/
+.yarn/
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+*.tsbuildinfo
+vite.svg
+
+# --- Python Mischbetrieb / Tooling ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Logs / lokale Zustände ---
+logs/
+*.log
+*.pid
+*.seed
+*.out
+*.err
+
+# --- Environment / Secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+secrets/
+
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# --- Medienregel ---
+# Handgepflegte Runtime-Assets in gifs/ und media/ bleiben versioniert.
+# Nur generierte Unterordner daraus ausschließen:
+gifs/generated/
+gifs/cache/
+gifs/export/
+media/generated/
+media/cache/
+media/export/
+media/transcoded/
+
+# --- Test-Artefakte ---
+playwright-report/
+test-results/
+htmlcov/
+
+# --- Niemals ausschließen: Quellcode und Tests ---
+!src/
+!tests/

@@ -1,30 +1,32 @@
 from __future__ import annotations
 
-from shellrpg_client.statusline.model import StatusLineState
-from shellrpg_client.statusline.spinner import render_spinner
-
 
 def render_status(status: dict) -> str:
-    state = StatusLineState(**status)
-    extras = f" | Fenster {state.reaction_seconds_left}s" if state.reaction_seconds_left else ""
-    dialogue = f" | Dialog: {state.dialogue_target}" if getattr(state, "dialogue_mode", False) else ""
+    extras = f" | Fenster {status['reaction_seconds_left']}s" if status.get("reaction_seconds_left") else ""
+    dialogue = f" | Dialog: {status['dialogue_target']}" if status.get("dialogue_mode") else ""
+    auto = f" | Auto-Battle: {'an' if status.get('auto_battle_enabled') else 'aus'} ({status.get('auto_battle_mode','balanced')})"
     return (
-        f"[{state.character_name} | {state.class_name}/{state.race_name} | Lvl {state.level} | "
-        f"{state.location_label} [{state.coords_label}] | HP {state.hp_current}/{state.hp_max} | "
-        f"MP {state.mana_current}/{state.mana_max} | {state.gold}g/{state.silver}s | Hunger: {state.hunger} | "
-        f"Aktion: {state.active_action}{extras}{dialogue} | Tick {state.tick_value}] {render_spinner(state.tick_value)}"
+        f"[{status['character_name']} | {status['class_name']}/{status['race_name']} | Lvl {status['level']} | "
+        f"{status['location_label']} [{status['coords_label']}] | HP {status['hp_current']}/{status['hp_max']} | "
+        f"MP {status['mana_current']}/{status['mana_max']} | {status['gold']}g/{status['silver']}s | Hunger: {status['hunger']} | "
+        f"Wetter: {status.get('weather_label','?')} | Zeit: {status.get('time_label','?')} | Mond: {status.get('moon_label','?')} | Venus: {status.get('venus_label','?')} | "
+        f"Aktion: {status['active_action']}{extras}{dialogue}{auto} | Tick {status['tick_value']}]"
     )
 
 
 def render_overlay(status: dict) -> str:
-    state = StatusLineState(**status)
-    lines = [f"Overlay: {state.overlay_message}", f"Media: media/gifs/{state.media_file}"]
-    if state.faction_tension:
-        lines.append(f"Spannung: {state.faction_tension}")
-    if state.combat_choices:
-        lines.append("Reaktionsfenster: " + ", ".join(state.combat_choices))
-    if getattr(state, "dialogue_mode", False):
-        lines.append(f"Dialogmodus aktiv: {state.dialogue_target}")
+    lines = [
+        f"Overlay: {status['overlay_message']}",
+        f"Terminal-Media: {status.get('media_terminal_file','')}",
+        f"WWW-Media: {status.get('media_file','')}",
+        f"Server: {status.get('server_id','')} | Kalender: {status.get('calendar_source','')} | Boot-Save: {status.get('boot_savepoint_source','local')}@{status.get('boot_savepoint_tick',0)}",
+    ]
+    if status.get('weather_effects'):
+        lines.append('Wettereffekte: ' + ' / '.join(status['weather_effects']))
+    if status.get("faction_tension"):
+        lines.append(f"Spannung: {status['faction_tension']}")
+    if status.get("combat_choices"):
+        lines.append("Reaktionsfenster: " + ", ".join(status["combat_choices"]))
     return "\n".join(lines)
 
 
@@ -32,9 +34,17 @@ def render_map(map_tiles: list[dict]) -> str:
     lines = ["Kartenausschnitt:"]
     for tile in map_tiles:
         marker = "*" if tile.get("is_current") else "-"
-        poi = f" | POI: {', '.join(tile['poi_known'])}" if tile.get("poi_known") else ""
-        resources = f" | Ressourcen: {', '.join(tile['known_resources'])}" if tile.get("known_resources") else ""
-        lines.append(f"  {marker} {tile['label']} [{tile['coords_label']}] [{tile['visibility_state']}]" + poi + resources)
+        if tile['visibility_state'] == 'unknown':
+            lines.append(f"  {marker} Unkartiert")
+            continue
+        parts = [f"  {marker} {tile['label']} [{tile['coords_label']}] [{tile['visibility_state']}]"]
+        if tile.get("biome"):
+            parts.append(f"{tile['biome']}/{tile.get('terrain','')}")
+        if tile.get("building"):
+            parts.append(f"Bauwerk: {tile['building']}")
+        if tile.get("known_resources"):
+            parts.append("Ressourcen: " + ", ".join(tile["known_resources"]))
+        lines.append(" | ".join(parts))
     return "\n".join(lines)
 
 
@@ -42,7 +52,7 @@ def render_inventory(entries: list[dict]) -> str:
     lines = ["Inventar:"]
     for entry in entries:
         affix = f" | {'; '.join(entry['affixes'])}" if entry.get('affixes') else ""
-        lines.append(f"  - {entry['item_name']} x{entry['quantity']} [{entry['category']}/{entry['quality']}]" + affix)
+        lines.append(f"  - {entry['item_name']} x{entry['quantity']} [{entry['category']}/{entry['quality']}] | {entry.get('sprite','')}{affix}")
     return "\n".join(lines)
 
 
@@ -50,7 +60,7 @@ def render_equipment(entries: list[dict]) -> str:
     lines = ["Ausrüstung:"]
     for entry in entries:
         affix = f" | {'; '.join(entry['affixes'])}" if entry.get('affixes') else ""
-        lines.append(f"  - {entry['slot']}: {entry['item_name']} [{entry['quality']}]" + affix)
+        lines.append(f"  - {entry['slot']}: {entry['item_name']} [{entry['quality']}] | {entry.get('sprite','')}{affix}")
     return "\n".join(lines)
 
 
@@ -63,13 +73,15 @@ def render_market(entries: list[dict]) -> str:
 
 def render_journal(entries: list[str]) -> str:
     lines = ["Journal:"]
-    for entry in entries[-10:]:
+    for entry in entries[-12:]:
         lines.append(f"  - {entry}")
     return "\n".join(lines)
 
 
 def render_quests(entries: list[dict]) -> str:
     lines = ["Questlog:"]
+    if not entries:
+        lines.append("  - keine aktiven Quests")
     for entry in entries:
         lines.append(f"  - {entry['title']} [{entry['status']}] {entry['progress_text']} — {entry['description']}")
     return "\n".join(lines)
@@ -81,5 +93,28 @@ def render_buffs(entries: list[dict]) -> str:
         lines.append("  - keine")
         return "\n".join(lines)
     for entry in entries:
-        lines.append(f"  - {entry['buff_name']} +{entry['value']} ({entry['remaining_ticks']} Ticks) via {entry['source']}")
+        lines.append(f"  - {entry['buff_name']} {entry['value']:+} ({entry['remaining_ticks']} Ticks) via {entry['source']}")
+    return "\n".join(lines)
+
+
+def render_combat(entries: list[dict]) -> str:
+    lines = ["Kampf:"]
+    if not entries:
+        lines.append("  - kein aktiver Kampf")
+        return "\n".join(lines)
+    for entry in entries:
+        lines.append(f"  - {entry['enemy_name']} HP {entry['hp_current']}/{entry['hp_max']} [{entry['faction']}/{entry['damage_type']}]")
+    return "\n".join(lines)
+
+
+def render_city(city: dict | None) -> str:
+    lines = ["Stadt:"]
+    if not city:
+        lines.append("  - noch keine gegründete Stadt")
+        return "\n".join(lines)
+    lines.append(f"  - {city['city_name']} | Gouverneur: {city['governor_name']} | Steuern: {city['taxes_silver']}s | Bevölkerung: {city['population']} | Forschung: {city['research_points']}")
+    for title, key in [("Bauwerke", 'building_lines'), ("Miliz", 'militia_lines'), ("Generäle", 'general_lines'), ("Produktion", 'production_lines'), ("Belagerung", 'siege_lines')]:
+        if city.get(key):
+            lines.append(f"  {title}:")
+            lines.extend([f"    • {line}" for line in city[key]])
     return "\n".join(lines)

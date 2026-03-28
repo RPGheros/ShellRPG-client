@@ -3,12 +3,12 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "shellrpg-server"
-version = "0.4.0"
-description = "Private authoritative Phase E vertical slice for the ShellRPG server core."
+name = "shellrpg-client"
+version = "0.7.6"
+description = "Public shell-native Phase G client for ShellRPG."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["psutil>=5.9"]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
