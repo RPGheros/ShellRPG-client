@@ -5,12 +5,10 @@ import argparse
 import json
 import os
 import random
-import re
 import shutil
 import socket
 import subprocess
 import sys
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +20,14 @@ except Exception:  # pragma: no cover - optionale Komfortabhängigkeit
     psutil = None
 
 from shellrpg_client.api_client import ApiClient
+from shellrpg_client.terminal_layout import (
+    ReservedRenderSession,
+    ReservedTerminalRenderer,
+    fit_plain_terminal_line,
+    fit_text_width,
+    format_shell_prompt,
+    pad_text_width,
+)
 from shellrpg_client.version import RELEASE_VERSION
 from shellrpg_client.ui import (
     render_buffs,
@@ -50,6 +56,15 @@ CHARACTER_FACTIONS = ["Menschen", "Amazonen", "Waldelfen", "Dryaden", "Baumwesen
 CHARACTER_RACES = ["Mensch", "Nekari", "Ssarathi", "Salzlunge", "Waldelf", "Dryade", "Baumwesen"]
 CHARACTER_CLASSES = ["Ritter", "Totenbeschwörer", "Kleriker", "Waldläufer", "Magier", "Dieb", "Beastmaster"]
 CHARACTER_COMMAND_ALIASES = {"character", "char", "chars"}
+INTRO_FRAME_DELAY = 0.18
+INTRO_SETTLE_DELAY = 0.28
+SCROLL_FRAME_DELAY = 0.09
+SCROLL_PANEL_ROWS = 16
+PARCHMENT_CODE = "38;5;223"
+INK_CODE = "38;5;94"
+ACCENT_CODE = "38;5;136"
+TITLE_CODE = "38;5;178"
+SHADOW_CODE = "38;5;58"
 
 
 # Aktiviert unter Windows nach Möglichkeit ANSI-Escapes für Cursorbewegung und Farben.
@@ -103,149 +118,340 @@ def local_probe_targets() -> list[dict[str, str]]:
     return targets[:12]
 
 
-# Zeigt eine harmlose, rein simulierte Prozedur zum fehlgeschlagenen Geräte- und Protokollzugriff an.
-def run_probe_sequence(targets: list[dict[str, str]], glitch: bool = False) -> None:
-    for target in targets:
-        label = f"[{target['kind'].upper():>7}] {target['label']}"
-        sys.stdout.write(color(label + "  ", "90"))
-        sys.stdout.flush()
-        for spinner in ["⠁", "⠂", "⠄", "⠂"]:
-            sys.stdout.write(color(spinner, "36"))
-            sys.stdout.flush()
-            time.sleep(0.08 if glitch else 0.11)
-            sys.stdout.write("\b")
-        suffix = color("FEHLSCHLAG", "31")
-        if glitch and random.random() < 0.35:
-            suffix = color("VERWORFEN", "31")
-        print(suffix)
+# Ermittelt eine sichere Panelbreite, die nie bis in den letzten Terminal-Viewport hineinragt.
+def panel_width_for_columns(columns: int, minimum: int = 36, maximum: int = 76) -> int:
+    hard_limit = max(12, columns - 1)
+    soft_target = min(maximum, max(12, columns - 6))
+    return max(12, min(hard_limit, max(minimum, soft_target)))
 
 
-# Erzeugt einen flüssigen Glitch-Text, der einzelne Zeichen kurzzeitig durch Symbole ersetzt.
-def animate_glitch_text(text: str, frames: int = 45, center: bool = True) -> None:
-    width = shutil.get_terminal_size((100, 30)).columns
-    glyphs = "#@$%&*?!/\\|[]{}<>~^_-="
-    for step in range(frames):
-        chars = list(text)
-        strength = 0.15 + (step / max(frames, 1)) * 0.25
-        for idx, char in enumerate(chars):
-            if char != " " and random.random() < strength:
-                chars[idx] = random.choice(glyphs)
-        render = "".join(chars)
-        if center:
-            offset = max(0, width // 2 - len(text) // 2 + (1 if step % 2 == 0 else -1))
-            render = " " * offset + render
-        sys.stdout.write("\r" + color(render, "35"))
-        sys.stdout.flush()
-        time.sleep(1 / 60)
-    final = text.center(width) if center else text
-    sys.stdout.write("\r" + color(final, "35") + "\n")
-    sys.stdout.flush()
+# Baut zentrierte Intro-Panels mit ruhigen, vollstaendigen Frames statt mit konkurrierenden Einzelzeichen-Updates.
+def build_intro_panel_lines(
+    columns: int,
+    title: str,
+    body_lines: list[str],
+    footer: str = "",
+    phase_label: str = "INIT",
+    rows: int = 12,
+) -> list[str]:
+    panel_width = panel_width_for_columns(columns, minimum=38, maximum=78)
+    inner = max(20, panel_width - 4)
+    left_pad = " " * max(0, (columns - panel_width) // 2)
+    content_slots = max(4, rows - 4)
+    normalized = [pad_text_width(f"[{phase_label}] {title}", inner, "center")]
+    normalized.append("")
+    normalized.extend(pad_text_width(line, inner) for line in body_lines)
+    if footer:
+        normalized.append("")
+        normalized.append(pad_text_width(footer, inner, "center"))
+    normalized = normalized[:content_slots]
+    while len(normalized) < content_slots:
+        normalized.append(" " * inner)
+    lines = [left_pad + color("┌" + "─" * (panel_width - 2) + "┐", ACCENT_CODE)]
+    for idx, line in enumerate(normalized):
+        code = TITLE_CODE if idx == 0 else (ACCENT_CODE if footer and idx == len(normalized) - 1 else INK_CODE)
+        lines.append(left_pad + color("│", ACCENT_CODE) + color(line, code) + color("│", ACCENT_CODE))
+    lines.append(left_pad + color("└" + "─" * (panel_width - 2) + "┘", ACCENT_CODE))
+    return lines[:rows]
 
 
-# Simuliert menschliches Tippen mit leichtem Jitter und optionalem Spinner am Ende.
-def type_line(text: str, spinner_seconds: float = 0.0) -> None:
-    for char in text:
-        sys.stdout.write(char)
-        sys.stdout.flush()
-        time.sleep(0.02 + random.random() * 0.04)
-    if spinner_seconds > 0:
-        deadline = time.time() + spinner_seconds
-        idx = 0
-        while time.time() < deadline:
-            sys.stdout.write(" " + SPINNERS[idx % len(SPINNERS)])
-            sys.stdout.flush()
-            time.sleep(0.15)
-            sys.stdout.write("\b" * (len(SPINNERS[idx % len(SPINNERS)]) + 1) + " " * (len(SPINNERS[idx % len(SPINNERS)]) + 1) + "\b" * (len(SPINNERS[idx % len(SPINNERS)]) + 1))
-            idx += 1
-    sys.stdout.write("\n")
-    sys.stdout.flush()
+# Rendert eine komplette Intro-Phase gegen einen festen Anker und wartet kontrolliert, bevor die naechste Phase startet.
+def render_intro_phase(
+    session: ReservedRenderSession,
+    columns: int,
+    title: str,
+    body_lines: list[str],
+    footer: str = "",
+    phase_label: str = "INIT",
+    delay: float = INTRO_FRAME_DELAY,
+) -> None:
+    current_columns = session.renderer.terminal_size().columns or columns
+    session.render(build_intro_panel_lines(current_columns, title, body_lines, footer=footer, phase_label=phase_label))
+    time.sleep(delay)
 
 
-# Löscht eine Zeile wie bei gedrückt gehaltener Backspace-Taste wieder aus dem Terminal.
-def erase_line(text: str) -> None:
-    for _ in text:
-        sys.stdout.write("\b \b")
-        sys.stdout.flush()
-        time.sleep(0.012 + random.random() * 0.02)
-    sys.stdout.write("\n")
-    sys.stdout.flush()
-
-
-# Führt den atmosphärischen Fake-Boot-Prozess aus und berührt dabei keine externen Hosts.
-def run_fake_boot(skip_intro: bool) -> None:
+# Führt den atmosphärischen Fake-Boot-Prozess phasenweise aus und hält Intro-Rendering strikt vom Live-HUD getrennt.
+def run_fake_boot(skip_intro: bool, renderer: ReservedTerminalRenderer | None = None) -> None:
     if skip_intro:
         return
-    print(color("== ShellRPG Initiation Bootstrap ==", "36"))
+    active_renderer = renderer or ReservedTerminalRenderer()
+    columns = active_renderer.terminal_size().columns
     targets = local_probe_targets()
-    run_probe_sequence(targets, glitch=False)
-    animate_glitch_text("Versuche Zugriff zu erhalten, umgehe Sicherheitsvorschriften.")
-    run_probe_sequence(targets, glitch=True)
-    print()
-    phrase = "Autsch ... was war das?! Was ist gerade passiert?!"
-    type_line(phrase, spinner_seconds=0.7)
-    erase_line(phrase)
-    type_line("Wo bin ich?!", spinner_seconds=0.6)
-    erase_line("Wo bin ich?!")
-    width = shutil.get_terminal_size((80, 25)).columns
-    for _ in range(12):
-        sys.stdout.write("\r" + " " * (width // 2) + color("_", "37"))
-        sys.stdout.flush()
-        time.sleep(0.25)
-        sys.stdout.write("\r" + " " * (width // 2 + 1))
-        sys.stdout.flush()
-        time.sleep(0.15)
-    type_line("Wer bin ich?!", spinner_seconds=0.5)
-    print()
+    probe_labels = []
+    for target in targets[:6]:
+        verdict = "VERWORFEN" if random.random() < 0.35 else "FEHLSCHLAG"
+        probe_labels.append(f"{target['kind'].upper():>7} · {target['label']} · {verdict}")
+    glyphs = ["#@$%&*?!/\\|[]{}<>~^_-=", "%&#@?!<>[]{}\\/-=+*"]
+    with ReservedRenderSession(active_renderer, rows=12) as session:
+        render_intro_phase(
+            session,
+            columns,
+            "ShellRPG Initiation Bootstrap",
+            [
+                "Das Intro verwendet jetzt nur noch vollstaendige Frames im reservierten Bereich.",
+                "Kein Backspace-Typing, kein konkurrierender Prompt-Zugriff, kein flackernder Cursor.",
+                "Lokale Ziele werden sondiert, ohne externe Hosts zu beruehren.",
+            ],
+            footer="Phase 1 von 4 · Synchronisiere Renderzustand",
+            phase_label="BOOT",
+            delay=INTRO_SETTLE_DELAY,
+        )
+        render_intro_phase(
+            session,
+            columns,
+            "Lokale Sondierung fehlgeschlagen",
+            probe_labels,
+            footer="Phase 2 von 4 · Alle lokalen Kanaele bleiben verschlossen",
+            phase_label="SCAN",
+            delay=INTRO_FRAME_DELAY,
+        )
+        render_intro_phase(
+            session,
+            columns,
+            "Versuche Zugriff zu erhalten, umgehe Sicherheitsvorschriften.",
+            [
+                fit_text_width(f"{glyphs[0]}  Integritaetswache aktiviert  {glyphs[1]}", panel_width_for_columns(columns) - 6),
+                fit_text_width(f"{glyphs[1]}  Prozess wird geordnet verworfen  {glyphs[0]}", panel_width_for_columns(columns) - 6),
+                "Jede Phase schliesst sauber ab, bevor die naechste beginnt.",
+            ],
+            footer="Phase 3 von 4 · Kein Rendering greift in die Eingabezeile ein",
+            phase_label="GLITCH",
+            delay=INTRO_SETTLE_DELAY,
+        )
+        render_intro_phase(
+            session,
+            columns,
+            "Erwachen",
+            [
+                "Autsch ... was war das?! Was ist gerade passiert?!",
+                "Wo bin ich?!",
+                "Wer bin ich?!",
+            ],
+            footer="Phase 4 von 4 · Uebergang in die Charaktererstellung",
+            phase_label="AWAKE",
+            delay=0.42,
+        )
 
 
-# Fragt eine Auswahl aus einer Liste ab und gibt den gewählten Wert zurück.
-def choose_from_list(title: str, options: list[str]) -> str:
-    print(title)
-    for idx, option in enumerate(options, start=1):
-        print(f"  {idx}. {option}")
+# Baut eine Shell-zeilenfreundliche Eingabeaufforderung fuer Wizards und Schriftrollen-Dialoge.
+def format_wizard_prompt(cwd: Path, columns: int, label: str) -> str:
+    base_prompt = format_shell_prompt(cwd, columns)
+    return fit_text_width(f"{base_prompt}{label}: ", max(1, columns - 1))
+
+
+# Baut die Schriftrollenoptik fuer die Charaktererstellung in einer festen Hoehe auf.
+def build_scroll_panel_lines(
+    columns: int,
+    title: str,
+    subtitle: str,
+    entries: list[str],
+    footer: str = "",
+    reveal_rows: int | None = None,
+    rows: int = SCROLL_PANEL_ROWS,
+) -> list[str]:
+    panel_width = panel_width_for_columns(columns, minimum=40, maximum=74)
+    inner = max(12, panel_width - 6)
+    left_pad = " " * max(0, (columns - panel_width) // 2)
+    content_rows = max(6, rows - 4)
+    full_content = [
+        ("  " + pad_text_width(title, inner - 2, "center"), TITLE_CODE),
+        ("  " + pad_text_width(subtitle, inner - 2, "center"), ACCENT_CODE),
+    ]
+    for entry in entries:
+        full_content.append(("  " + pad_text_width(entry, inner - 2), INK_CODE))
+    if footer:
+        full_content.append(("  " + pad_text_width(footer, inner - 2, "center"), ACCENT_CODE))
+    visible = reveal_rows if reveal_rows is not None else len(full_content)
+    visible = max(0, min(content_rows, visible))
+    while len(full_content) < content_rows:
+        full_content.append((" " * inner, PARCHMENT_CODE))
+    lines = [
+        left_pad + color("   ." + "=" * (panel_width - 8) + ".   ", SHADOW_CODE),
+        left_pad + color("  /" + "=" * (panel_width - 4) + "\\  ", SHADOW_CODE),
+    ]
+    for idx in range(content_rows):
+        text, code = full_content[idx] if idx < visible else (" " * inner, PARCHMENT_CODE)
+        padded = pad_text_width(text, inner)
+        lines.append(left_pad + color(" ||", SHADOW_CODE) + color(padded, code) + color("|| ", SHADOW_CODE))
+    lines.append(left_pad + color("  \\" + "=" * (panel_width - 4) + "/  ", SHADOW_CODE))
+    lines.append(left_pad + color("   '" + "=" * (panel_width - 8) + "'   ", SHADOW_CODE))
+    return lines[:rows]
+
+
+# Lässt die Schriftrolle kontrolliert ab- oder aufrollen, ohne den Prompt-Anker zu verlieren.
+def animate_scroll(
+    session: ReservedRenderSession,
+    columns: int,
+    title: str,
+    subtitle: str,
+    entries: list[str],
+    footer: str = "",
+    opening: bool = True,
+) -> None:
+    target_rows = max(3, min(SCROLL_PANEL_ROWS - 4, len(entries) + 3))
+    sequence = range(1, target_rows + 1) if opening else range(target_rows, 0, -1)
+    for reveal in sequence:
+        current_columns = session.renderer.terminal_size().columns or columns
+        session.render(build_scroll_panel_lines(current_columns, title, subtitle, entries, footer=footer, reveal_rows=reveal))
+        time.sleep(SCROLL_FRAME_DELAY)
+
+
+# Fragt eine Auswahl aus einer Liste ab und zeigt sie in einer ruhigen Schriftrollenansicht an.
+def choose_from_list(
+    session: ReservedRenderSession,
+    cwd: Path,
+    title: str,
+    options: list[str],
+    subtitle: str,
+) -> str:
     while True:
-        raw = input("> ").strip()
+        columns = session.renderer.terminal_size().columns
+        entries = [f"{idx}. {option}" for idx, option in enumerate(options, start=1)]
+        prompt = format_wizard_prompt(cwd, columns, "Auswahl 1-" + str(len(options)))
+        raw = session.read(
+            build_scroll_panel_lines(columns, title, subtitle, entries, footer="Waehle eine Zahl und bestaetige mit Enter."),
+            prompt,
+        ).strip()
         if raw.isdigit() and 1 <= int(raw) <= len(options):
             return options[int(raw) - 1]
-        print("Bitte eine gültige Zahl eingeben.")
+        session.render(
+            build_scroll_panel_lines(
+                columns,
+                title,
+                subtitle,
+                entries,
+                footer="Ungueltige Auswahl. Bitte waehle eine gueltige Zahl.",
+            ),
+            "",
+        )
+        time.sleep(INTRO_FRAME_DELAY)
 
 
-# Liest eine freie Namenseingabe für den Charakter und begrenzt sie auf 32 Zeichen.
-def ask_name() -> str:
+# Liest den Charakternamen ueber die Schriftrollenoberflaeche ein und begrenzt ihn auf 32 Zeichen.
+def ask_name(session: ReservedRenderSession, cwd: Path) -> str:
     while True:
-        name = input("Charaktername (max. 32 Zeichen): ").strip()
-        if 1 <= len(name) <= 32:
-            return name
-        print("Bitte einen Namen zwischen 1 und 32 Zeichen eingeben.")
+        columns = session.renderer.terminal_size().columns
+        entries = [
+            "Trage den Namen deines Charakters in die obere Zeile ein.",
+            "Erlaubt sind 1 bis 32 sichtbare Zeichen.",
+            "Die Schriftrolle bleibt waehrend der Eingabe oberhalb der Prompt-Zeile verankert.",
+        ]
+        raw = session.read(
+            build_scroll_panel_lines(columns, "Namenssiegel", "Schriftrolle des Erwachens", entries, footer="Beispiel: Wuffie"),
+            format_wizard_prompt(cwd, columns, "Name"),
+        ).strip()
+        if 1 <= len(raw) <= 32:
+            return raw
+        session.render(
+            build_scroll_panel_lines(
+                columns,
+                "Namenssiegel",
+                "Schriftrolle des Erwachens",
+                entries,
+                footer="Bitte gib einen Namen zwischen 1 und 32 Zeichen ein.",
+            ),
+            "",
+        )
+        time.sleep(INTRO_FRAME_DELAY)
 
 
-# Fragt Attributpunkte ab und verteilt sie in einem einfachen, aber belastbaren Einstiegsmenü.
-def allocate_attributes(points: int = 12) -> dict[str, int]:
+# Fragt Attributpunkte ueber eine scrollartige Ruheansicht ab und verteilt sie schrittweise.
+def allocate_attributes(session: ReservedRenderSession, cwd: Path, points: int = 12) -> dict[str, int]:
     base = {"strength": 10, "dexterity": 10, "accuracy": 10, "intelligence": 10, "wisdom": 10, "speed": 10}
     keys = list(base.keys())
     while points > 0:
-        print(f"Verbleibende Attributpunkte: {points}")
+        columns = session.renderer.terminal_size().columns
+        entries = [f"Verbleibende Punkte: {points}", ""]
         for idx, key in enumerate(keys, start=1):
-            print(f"  {idx}. {key}: {base[key]}")
-        raw = input("Punkt verteilen (Nummer oder Enter zum Abschließen): ").strip()
+            entries.append(f"{idx}. {key:<13} {base[key]}")
+        entries.append("")
+        entries.append("Enter schliesst die Verteilung mit dem aktuellen Stand ab.")
+        raw = session.read(
+            build_scroll_panel_lines(
+                columns,
+                "Attributverteilung",
+                "Die Pergamentrolle wartet ruhig auf jede einzelne Entscheidung",
+                entries,
+                footer="Waehle eine Zahl, um genau einen Punkt zu vergeben.",
+            ),
+            format_wizard_prompt(cwd, columns, "Attribut"),
+        ).strip()
         if not raw:
             break
         if raw.isdigit() and 1 <= int(raw) <= len(keys):
-            base[keys[int(raw)-1]] += 1
+            base[keys[int(raw) - 1]] += 1
             points -= 1
-        else:
-            print("Ungültige Auswahl.")
+            continue
+        session.render(
+            build_scroll_panel_lines(
+                columns,
+                "Attributverteilung",
+                "Die Pergamentrolle wartet ruhig auf jede einzelne Entscheidung",
+                entries,
+                footer="Ungueltige Auswahl. Bitte waehle eine Zahl aus der Liste.",
+            ),
+            "",
+        )
+        time.sleep(INTRO_FRAME_DELAY)
     return base
 
 
-# Führt die Charaktererstellung lokal aus und liefert das serverfähige Profil zurück.
-def run_character_creation(default_language: str = "de") -> dict[str, Any]:
-    print(color("=== Charaktererstellung ===", "33"))
-    name = ask_name()
-    faction = choose_from_list("Wähle deine Fraktion:", CHARACTER_FACTIONS)
-    race = choose_from_list("Wähle deine Rasse:", CHARACTER_RACES)
-    clazz = choose_from_list("Wähle deine Kampfklasse:", CHARACTER_CLASSES)
-    attrs = allocate_attributes(12)
+# Führt die Charaktererstellung lokal in einer gekapselten Schriftrolleninszenierung aus.
+def run_character_creation(
+    default_language: str = "de",
+    renderer: ReservedTerminalRenderer | None = None,
+    cwd: Path | None = None,
+) -> dict[str, Any]:
+    active_renderer = renderer or ReservedTerminalRenderer()
+    active_cwd = cwd or Path.cwd()
+    with ReservedRenderSession(active_renderer, SCROLL_PANEL_ROWS) as session:
+        columns = session.renderer.terminal_size().columns
+        animate_scroll(
+            session,
+            columns,
+            "Schriftrolle der Herkunft",
+            "Die Pergamentkanten rollen sich langsam aus.",
+            [
+                "Name, Herkunft, Gestalt und Kampfklasse werden nacheinander besiegelt.",
+                "Die Eingabezeile bleibt dabei stets die letzte Zeile des Terminals.",
+                "Erst nach Abschluss zieht sich die Rolle wieder sauber zusammen.",
+            ],
+            footer="Die Schriftrolle ist bereit.",
+            opening=True,
+        )
+        name = ask_name(session, active_cwd)
+        faction = choose_from_list(session, active_cwd, "Fraktionssiegel", CHARACTER_FACTIONS, "Waehle die politische Herkunft deines Charakters.")
+        race = choose_from_list(session, active_cwd, "Rassenkunde", CHARACTER_RACES, "Waehle die leibliche Gestalt, in der du erwachst.")
+        clazz = choose_from_list(session, active_cwd, "Kampfklasse", CHARACTER_CLASSES, "Waehle die Disziplin, die dein Auftreten praegen wird.")
+        attrs = allocate_attributes(session, active_cwd, 12)
+        summary_columns = session.renderer.terminal_size().columns
+        summary_entries = [
+            f"Name: {name}",
+            f"Fraktion: {faction}",
+            f"Rasse: {race}",
+            f"Klasse: {clazz}",
+            "",
+            *[f"{key:<13} {value}" for key, value in attrs.items()],
+        ]
+        session.read(
+            build_scroll_panel_lines(
+                summary_columns,
+                "Siegel abgeschlossen",
+                "Die Schriftrolle zeigt noch einmal den finalen Charakterzustand",
+                summary_entries,
+                footer="Mit Enter wird die Rolle versiegelt und wieder eingerollt.",
+            ),
+            format_wizard_prompt(active_cwd, summary_columns, "Enter zum Abschliessen"),
+        )
+        animate_scroll(
+            session,
+            summary_columns,
+            "Siegel abgeschlossen",
+            "Die Pergamentrolle zieht sich geordnet zurueck.",
+            summary_entries,
+            footer="Uebergang in den Live-Betrieb",
+            opening=False,
+        )
     return {
         "character_name": name,
         "faction": faction,
@@ -360,6 +566,8 @@ def handle_character_command(
     raw: str,
     api: ApiClient,
     profile: dict[str, Any],
+    renderer: ReservedTerminalRenderer | None = None,
+    cwd: Path | None = None,
 ) -> tuple[bool, dict[str, Any], dict[str, Any] | None]:
     if not is_character_command(raw):
         return False, profile, None
@@ -384,7 +592,11 @@ def handle_character_command(
             print(f"Charakterliste nicht verfügbar: {exc}")
         return True, sync_profile_identity(current_profile, api), None
     if action in {"new", "create"}:
-        payload = run_character_creation(str(current_profile.get("language", "de") or "de"))
+        payload = run_character_creation(
+            str(current_profile.get("language", "de") or "de"),
+            renderer=renderer,
+            cwd=cwd,
+        )
         try:
             result = api.create_character(payload)
             if not result.get("ok"):
@@ -448,8 +660,8 @@ def is_game_command(raw: str) -> bool:
     return first in GAME_VERBS
 
 
-# Führt einfache Shell-Kommandos aus und behandelt Verzeichniswechsel lokal im Client-Prozess.
-def run_shell_command(raw: str, cwd: Path) -> tuple[Path, str]:
+# Führt Shell-Kommandos aus, behandelt Verzeichniswechsel lokal und kann Ausgaben bei Bedarf direkt an die echte Shell durchreichen.
+def run_shell_command(raw: str, cwd: Path, capture_output: bool = True) -> tuple[Path, str]:
     stripped = raw.strip()
     if stripped.lower() in {"pwd", "cd"}:
         return cwd, str(cwd)
@@ -460,9 +672,14 @@ def run_shell_command(raw: str, cwd: Path) -> tuple[Path, str]:
             return nxt, str(nxt)
         return cwd, f"Pfad nicht gefunden: {target}"
     try:
-        result = subprocess.run(stripped, shell=True, cwd=str(cwd), capture_output=True, text=True)
-        output = (result.stdout or "") + (result.stderr or "")
-        return cwd, output.strip() or f"Rückgabecode: {result.returncode}"
+        run_kwargs: dict[str, Any] = {"shell": True, "cwd": str(cwd), "text": True}
+        if capture_output:
+            run_kwargs["capture_output"] = True
+        result = subprocess.run(stripped, **run_kwargs)
+        if capture_output:
+            output = (result.stdout or "") + (result.stderr or "")
+            return cwd, output.strip() or f"Rückgabecode: {result.returncode}"
+        return cwd, ""
     except Exception as exc:
         return cwd, f"Shell-Kommando fehlgeschlagen: {exc}"
 
@@ -486,53 +703,46 @@ def venus_scale(label: str) -> str:
     return "◑"
 
 
-# Erzeugt die vier kompakten Statuszeilen für die nicht scrollende Live-Anzeige.
-def compact_status_lines(snapshot: dict, spinner_index: int) -> list[str]:
+# Erzeugt die vier kompakten Statuszeilen und kuerzt sie strikt auf genau eine physische Terminalzeile ein.
+def compact_status_lines(snapshot: dict, spinner_index: int, columns: int | None = None) -> list[str]:
+    width = columns or shutil.get_terminal_size((100, 30)).columns
     status = snapshot["status"]
     action = status.get("active_action", "idle")
-    overlay = status.get("overlay_message", "")
+    overlay = status.get("overlay_message", "") or f"Aktiv: {action}"
     location = status.get("location_label", "?")
     if action in {"idle", ""}:
         live = f"Dein Ritter macht gerade nichts ... {SPINNERS[spinner_index % len(SPINNERS)]} [{location}]"
     else:
         live = f"{overlay} {SPINNERS[spinner_index % len(SPINNERS)]}"
-    return [
+    lines = [
         live,
         f"[ {status['character_name']} | {status['class_name']}/{status['race_name']} | Lvl {status['level']} | {location} [{status['coords_label']}] | HP {status['hp_current']}/{status['hp_max']} | MP {status['mana_current']}/{status['mana_max']} ]",
         f"[ {status['gold']} Gold / {status['silver']} Silber | Hunger: {status['hunger']} | Wetter: {status.get('weather_label','?')} | Zeit: {status.get('time_label','?')} ]",
         f"[ Mond: {moon_scale(status.get('moon_label','?'))} {status.get('moon_label','?')} | Venus: {venus_scale(status.get('venus_label','?'))} {status.get('venus_label','?')} | Aktion: {action} | Auto-Battle: {'an' if status.get('auto_battle_enabled') else 'aus'} ]",
     ]
+    return [fit_plain_terminal_line(line, width) for line in lines]
 
 
 @dataclass
 class LiveContext:
-    # Bündelt die laufenden Zustände für Header, Renderer und Hintergrundmonitor des Clients.
+    # Bündelt den letzten Snapshot und den visuellen Spinnerstand für sichere, serielle Redraws.
     snapshot: dict
     spinner_index: int = 0
     last_media_file: str = ""
 
 
-class HeaderRenderer:
-    # Zeichnet die kompakte Vierzeilen-Anzeige oberhalb des Shell-Prompts ohne Scroll-Spam neu.
-    def __init__(self, rows: int = HEADER_ROWS) -> None:
-        self.rows = rows
-        self.lock = threading.Lock()
+# Holt den aktuellen Serverzustand seriell und vermeidet nebenlaeufige Terminalschreiber waehrend der Eingabe.
+def refresh_live_context(api: ApiClient, context: LiveContext) -> None:
+    context.snapshot = api.state()
+    context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
 
-    # Reserviert Leerzeilen vor dem Prompt, damit die Live-Anzeige darüber Platz hat.
-    def reserve(self) -> None:
-        sys.stdout.write("\n" * self.rows)
-        sys.stdout.flush()
 
-    # Rendert die aktuelle Live-Anzeige mit ANSI-Cursorsteuerung über die reservierten Zeilen neu.
-    def draw(self, lines: list[str]) -> None:
-        with self.lock:
-            sys.stdout.write("\x1b[s")
-            sys.stdout.write(f"{ANSI}{self.rows}A")
-            for idx in range(self.rows):
-                sys.stdout.write(f"{ANSI}2K\r")
-                sys.stdout.write((lines[idx] if idx < len(lines) else "") + ("\n" if idx < self.rows - 1 else ""))
-            sys.stdout.write("\x1b[u")
-            sys.stdout.flush()
+# Rendert HUD und Prompt kontrolliert oberhalb der Shell-Zeile und kuerzt dabei alle UI-Zeilen auf die Terminalbreite.
+def render_live_prompt(renderer: ReservedTerminalRenderer, context: LiveContext, cwd: Path) -> None:
+    columns = renderer.terminal_size().columns
+    renderer.reserve(HEADER_ROWS)
+    renderer.draw_above_anchor(compact_status_lines(context.snapshot, context.spinner_index, columns), HEADER_ROWS)
+    renderer.write_prompt(format_shell_prompt(cwd, columns))
 
 
 # Erkennt optionale Terminal-Bildrenderer und gibt deren Namen zurück.
@@ -589,25 +799,10 @@ def print_command_feedback(snapshot: dict, command: str, renderer: str | None) -
         print(media_preview)
 
 
-# Aktualisiert den kompakten Header im Hintergrund sekündlich, während der Benutzer am Prompt arbeiten kann.
-def start_live_monitor(api: ApiClient, context: LiveContext, renderer: HeaderRenderer, stop_event: threading.Event) -> threading.Thread:
-    def monitor() -> None:
-        while not stop_event.is_set():
-            try:
-                context.snapshot = api.state()
-                context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
-                renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
-            except Exception:
-                pass
-            time.sleep(1.0)
-    thread = threading.Thread(target=monitor, daemon=True)
-    thread.start()
-    return thread
-
-
 # Führt den Hauptloop des Clients aus und verbindet Shell-Kommandos, Spielkommandos, Intro und Charaktererstellung.
 def main(argv: list[str] | None = None) -> int:
     enable_ansi_support()
+    renderer = ReservedTerminalRenderer()
     parser = argparse.ArgumentParser(description=f"ShellRPG terminal Phase {RELEASE_VERSION} client")
     parser.add_argument("--server", default="http://127.0.0.1:8765", help="Basis-URL des ShellRPG-Servers.")
     parser.add_argument("--command", help="Führt genau ein Spielkommando aus und beendet sich dann.")
@@ -615,11 +810,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--new-character", action="store_true", help="Erzwingt die Charaktererstellung auch dann, wenn bereits ein Profil existiert.")
     args = parser.parse_args(argv)
 
-    run_fake_boot(args.skip_intro)
+    run_fake_boot(args.skip_intro, renderer=renderer)
     profile = None if args.new_character else read_profile()
     provisional_name = (profile or {}).get("character_name", "Neowulf")
     player_account_id = str((profile or {}).get("player_account_id", ""))
     device_id = str((profile or {}).get("device_id", ""))
+    current_cwd = Path.cwd()
 
     try:
         api = ApiClient(
@@ -645,7 +841,7 @@ def main(argv: list[str] | None = None) -> int:
                 "language": "de",
             }
         else:
-            profile = run_character_creation("de")
+            profile = run_character_creation("de", renderer=renderer, cwd=current_cwd)
         try:
             api.create_character(profile)
             profile["player_account_id"] = api.player_account_id
@@ -665,13 +861,10 @@ def main(argv: list[str] | None = None) -> int:
     write_profile(profile)
 
     context = LiveContext(snapshot=bootstrap)
-    renderer = HeaderRenderer(HEADER_ROWS)
-    renderer.reserve()
-    renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
 
     if args.command:
         if is_character_command(args.command):
-            handled, profile, snapshot = handle_character_command(args.command, api, profile)
+            handled, profile, snapshot = handle_character_command(args.command, api, profile, renderer=renderer, cwd=current_cwd)
             if handled:
                 if snapshot is not None:
                     context.snapshot = snapshot
@@ -682,40 +875,42 @@ def main(argv: list[str] | None = None) -> int:
         print_command_feedback(snapshot, args.command, detect_media_renderer())
         return 0
 
-    cwd = Path.cwd()
+    cwd = current_cwd
     media_renderer = detect_media_renderer()
-    stop_event = threading.Event()
-    start_live_monitor(api, context, renderer, stop_event)
     print(color("Spielbefehle und Shell-Befehle teilen sich jetzt denselben Prompt. 'quit' oder 'exit' beendet nur den Client.", "90"))
-    try:
-        while True:
-            prompt = f"PS {cwd}> "
-            raw = input(prompt).strip()
-            if raw.lower() in {"quit", "exit"}:
-                print("Sitzung beendet.")
-                return 0
-            if not raw:
-                continue
-            handled, profile, snapshot = handle_character_command(raw, api, profile)
-            if handled:
-                if snapshot is not None:
-                    context.snapshot = snapshot
-                profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
-                write_profile(profile)
-                renderer.reserve()
-                renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
-                continue
-            if is_game_command(raw):
-                snapshot = api.post_command(raw)
+    while True:
+        try:
+            refresh_live_context(api, context)
+        except Exception:
+            pass
+        render_live_prompt(renderer, context, cwd)
+        raw = input("").strip()
+        if raw.lower() in {"quit", "exit"}:
+            print("Sitzung beendet.")
+            return 0
+        if not raw:
+            continue
+        handled, profile, snapshot = handle_character_command(raw, api, profile, renderer=renderer, cwd=cwd)
+        if handled:
+            if snapshot is not None:
                 context.snapshot = snapshot
-                print_command_feedback(snapshot, raw, media_renderer)
-                renderer.reserve()
-                renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
-                continue
-            cwd, shell_output = run_shell_command(raw, cwd)
-            if shell_output:
-                print(shell_output)
-            renderer.reserve()
-            renderer.draw(compact_status_lines(context.snapshot, context.spinner_index))
-    finally:
-        stop_event.set()
+                context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
+            profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
+            write_profile(profile)
+            continue
+        if is_game_command(raw):
+            snapshot = api.post_command(raw)
+            context.snapshot = snapshot
+            context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
+            print_command_feedback(snapshot, raw, media_renderer)
+            continue
+        cwd, shell_output = run_shell_command(raw, cwd, capture_output=False)
+        if shell_output:
+            print(shell_output)
+        else:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+        try:
+            refresh_live_context(api, context)
+        except Exception:
+            pass
