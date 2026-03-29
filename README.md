@@ -43,6 +43,14 @@ python -m shellrpg_client
 ```
 
 Der dedizierte Browserzugang läuft getrennt über `ShellRPG-www`.
+Der Terminal-Client behaelt seine lokalen Medienpfade fuer GIF-/ASCII-Vorschau;
+WWW-Bildpfade fuer Browseransichten laufen getrennt ueber den Web-/CDN-Pfad.
+
+Aktuelle Kanonvorbereitung:
+- kuenftige UI-Texte muessen Monster, Hive, Wildlife, Natur und Daemonen klar
+  unterscheiden
+- die Ausruestungsdarstellung wird auf sechs Ringslots pro Charakter
+  vorbereitet
 
 ## 4. Feedback & Contribution
 

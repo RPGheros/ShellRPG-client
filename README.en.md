@@ -43,6 +43,13 @@ python -m shellrpg_client
 ```
 
 The dedicated browser surface is provided separately by `ShellRPG-www`.
+The terminal client keeps its own local media previews; WWW image delivery is
+handled separately through the web/CDN path.
+
+Current canon preparation:
+- future UI text must distinguish monster, hive, wildlife, nature, and demons
+  more clearly
+- equipment rendering is being prepared for six ring slots per character
 
 ## 4. Feedback & Contribution
 

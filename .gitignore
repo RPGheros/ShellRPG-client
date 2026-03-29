@@ -37,12 +37,15 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+pytest-cache-files-*/
+pytest-of-*/
 .mypy_cache/
 .ruff_cache/
 
 # --- Logs / lokale Zustände ---
 logs/
 *.log
+var/
 *.pid
 *.seed
 *.out
