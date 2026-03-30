@@ -51,6 +51,9 @@ Aktuelle Kanonvorbereitung:
   unterscheiden
 - die Ausruestungsdarstellung wird auf sechs Ringslots pro Charakter
   vorbereitet
+- wenn der Server redigierte Tile-Welthinweise liefert, zeigt die
+  Kartenansicht jetzt unter der Karte ein `Milieu: ...`, statt dafuer einen
+  separaten Client-Sonderpfad mit eigener Begriffswahrheit aufzubauen
 
 ## 4. Feedback & Contribution
 

@@ -37,7 +37,7 @@ BASE_COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("faction attack", "Löst einen Testangriff der aktuellen Feindfraktion aus."),
     CommandSpec("cube enter / cube leave / cube say <frage>", "Sprich mit dem schwarzen Kubus."),
     CommandSpec("use <item>", "Verwendet Tränke, Schriftrollen oder Bücher."),
-    CommandSpec("equip <item>", "Rüstet Waffen, Rüstungen oder Accessoires aus."),
+    CommandSpec("equip <item> [--slot ring_left_1]", "Rüstet Waffen, Rüstungen oder Accessoires aus; Ringe optional in einen konkreten Ringslot."),
     CommandSpec("read <item>", "Öffnet ein Buch und erlaubt Blättern mit book next/prev."),
     CommandSpec("inventory", "Zeigt das aktuelle Inventar."),
     CommandSpec("equipment", "Zeigt ausgerüstete Gegenstände."),

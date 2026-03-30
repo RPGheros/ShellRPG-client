@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 
+def _slot_label(slot: str) -> str:
+    return str(slot or "").replace("_", " ")
+
+
 def render_status(status: dict) -> str:
     extras = f" | Fenster {status['reaction_seconds_left']}s" if status.get("reaction_seconds_left") else ""
     dialogue = f" | Dialog: {status['dialogue_target']}" if status.get("dialogue_mode") else ""
@@ -40,6 +44,8 @@ def render_map(map_tiles: list[dict]) -> str:
         parts = [f"  {marker} {tile['label']} [{tile['coords_label']}] [{tile['visibility_state']}]"]
         if tile.get("biome"):
             parts.append(f"{tile['biome']}/{tile.get('terrain','')}")
+        if tile.get("spawn_milieu"):
+            parts.append(f"Milieu: {tile['spawn_milieu']}")
         if tile.get("building"):
             parts.append(f"Bauwerk: {tile['building']}")
         if tile.get("known_resources"):
@@ -59,8 +65,12 @@ def render_inventory(entries: list[dict]) -> str:
 def render_equipment(entries: list[dict]) -> str:
     lines = ["Ausrüstung:"]
     for entry in entries:
+        label = _slot_label(entry.get("slot", ""))
+        if not entry.get("occupied", True):
+            lines.append(f"  - {label}: [leer]")
+            continue
         affix = f" | {'; '.join(entry['affixes'])}" if entry.get('affixes') else ""
-        lines.append(f"  - {entry['slot']}: {entry['item_name']} [{entry['quality']}] | {entry.get('sprite','')}{affix}")
+        lines.append(f"  - {label}: {entry['item_name']} [{entry['quality']}] | {entry.get('sprite','')}{affix}")
     return "\n".join(lines)
 
 

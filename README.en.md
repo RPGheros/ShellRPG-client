@@ -50,6 +50,9 @@ Current canon preparation:
 - future UI text must distinguish monster, hive, wildlife, nature, and demons
   more clearly
 - equipment rendering is being prepared for six ring slots per character
+- when the server delivers redacted tile world hints, the map view now shows
+  a `Milieu: ...` line below the map instead of inventing a separate
+  client-only terminology path
 
 ## 4. Feedback & Contribution
 
