@@ -54,6 +54,9 @@ Aktuelle Kanonvorbereitung:
 - wenn der Server redigierte Tile-Welthinweise liefert, zeigt die
   Kartenansicht jetzt unter der Karte ein `Milieu: ...`, statt dafuer einen
   separaten Client-Sonderpfad mit eigener Begriffswahrheit aufzubauen
+- derselbe Kartenpfad kann jetzt auch einen redigierten `Stadthinweis: ...`
+  aus `urban_suspicion_line` zeigen; die Terminaldarstellung bleibt dabei an
+  den serverseitigen Public-Vertrag gebunden
 
 ## 4. Feedback & Contribution
 

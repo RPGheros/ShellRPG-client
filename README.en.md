@@ -53,6 +53,9 @@ Current canon preparation:
 - when the server delivers redacted tile world hints, the map view now shows
   a `Milieu: ...` line below the map instead of inventing a separate
   client-only terminology path
+- the same map contract can now also surface a redacted urban hint from
+  `urban_suspicion_line`; the terminal client stays bound to the
+  server-provided public contract instead of inventing local suspicion logic
 
 ## 4. Feedback & Contribution
 

@@ -46,6 +46,8 @@ def render_map(map_tiles: list[dict]) -> str:
             parts.append(f"{tile['biome']}/{tile.get('terrain','')}")
         if tile.get("spawn_milieu"):
             parts.append(f"Milieu: {tile['spawn_milieu']}")
+        if tile.get("urban_suspicion_line"):
+            parts.append(f"Stadthinweis: {tile['urban_suspicion_line']}")
         if tile.get("building"):
             parts.append(f"Bauwerk: {tile['building']}")
         if tile.get("known_resources"):
@@ -123,6 +125,14 @@ def render_city(city: dict | None) -> str:
         lines.append("  - noch keine gegründete Stadt")
         return "\n".join(lines)
     lines.append(f"  - {city['city_name']} | Gouverneur: {city['governor_name']} | Steuern: {city['taxes_silver']}s | Bevölkerung: {city['population']} | Forschung: {city['research_points']}")
+    if city.get('region_line'):
+        lines.append(f"    Region: {city['region_line']}")
+    if city.get('weather_pressure_line'):
+        lines.append(f"    Wetter: {city['weather_pressure_line']}")
+    if city.get('urban_suspicion_line'):
+        lines.append(f"    Hinweis: {city['urban_suspicion_line']}")
+    if city.get('urban_diagnosis_line'):
+        lines.append(f"    Diagnose: {city['urban_diagnosis_line']}")
     for title, key in [("Bauwerke", 'building_lines'), ("Miliz", 'militia_lines'), ("Generäle", 'general_lines'), ("Produktion", 'production_lines'), ("Belagerung", 'siege_lines')]:
         if city.get(key):
             lines.append(f"  {title}:")
