@@ -57,6 +57,10 @@ Aktuelle Kanonvorbereitung:
 - derselbe Kartenpfad kann jetzt auch einen redigierten `Stadthinweis: ...`
   aus `urban_suspicion_line` zeigen; die Terminaldarstellung bleibt dabei an
   den serverseitigen Public-Vertrag gebunden
+- derselbe Kartenpfad kann jetzt auch eine redigierte
+  `Stadtdiagnose: ...` aus dem persistierten urbanen Verdachtspool zeigen;
+  Tile-Hinweis und Diagnose bleiben dabei an dieselben serverseitigen
+  Registry-Refs gebunden
 
 ## 4. Feedback & Contribution
 

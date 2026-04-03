@@ -56,6 +56,9 @@ Current canon preparation:
 - the same map contract can now also surface a redacted urban hint from
   `urban_suspicion_line`; the terminal client stays bound to the
   server-provided public contract instead of inventing local suspicion logic
+- the same contract can now also surface a redacted urban diagnosis from the
+  persisted urban suspicion pool; tile hint and diagnosis stay bound to the
+  same server-side registry refs
 
 ## 4. Feedback & Contribution
 

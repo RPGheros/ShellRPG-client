@@ -48,6 +48,8 @@ def render_map(map_tiles: list[dict]) -> str:
             parts.append(f"Milieu: {tile['spawn_milieu']}")
         if tile.get("urban_suspicion_line"):
             parts.append(f"Stadthinweis: {tile['urban_suspicion_line']}")
+        if tile.get("urban_diagnosis_line"):
+            parts.append(f"Stadtdiagnose: {tile['urban_diagnosis_line']}")
         if tile.get("building"):
             parts.append(f"Bauwerk: {tile['building']}")
         if tile.get("known_resources"):
