@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +58,7 @@ CHARACTER_RACES = ["Mensch", "Nekari", "Ssarathi", "Salzlunge", "Waldelf", "Drya
 CHARACTER_CLASSES = ["Ritter", "Totenbeschwörer", "Kleriker", "Waldläufer", "Magier", "Dieb", "Beastmaster"]
 CHARACTER_COMMAND_ALIASES = {"character", "char", "chars"}
 CONTROL_COMMAND_ALIASES = {"control", "controller"}
+MATRIX_COMMAND_ALIASES = {"matrix"}
 OBSERVER_SAFE_COMMAND_PATTERNS = (
     "showcommands",
     "show commands",
@@ -116,6 +118,7 @@ INK_CODE = "38;5;94"
 ACCENT_CODE = "38;5;136"
 TITLE_CODE = "38;5;178"
 SHADOW_CODE = "38;5;58"
+MATRIX_HEALTH_REFRESH_SECONDS = 12.0
 
 
 # Aktiviert unter Windows nach Möglichkeit ANSI-Escapes für Cursorbewegung und Farben.
@@ -526,6 +529,13 @@ def is_control_command(raw: str) -> bool:
     return raw.strip().split()[0].lower() in CONTROL_COMMAND_ALIASES
 
 
+# Erkennt lokale Matrix-/Peer-Diagnosebefehle fuer denselben serverseitigen Public-Contract wie WWW.
+def is_matrix_command(raw: str) -> bool:
+    if not raw:
+        return False
+    return raw.strip().split()[0].lower() in MATRIX_COMMAND_ALIASES
+
+
 # Normalisiert einen eingegebenen Befehl fuer lokale Alias- und Sicherheitspruefungen.
 def normalize_command_query(text: str) -> str:
     return " ".join((text or "").strip().lower().replace("_", " ").split())
@@ -889,6 +899,541 @@ def handle_control_command(raw: str, api: ApiClient) -> tuple[bool, dict[str, An
     return True, None
 
 
+def normalize_matrix_count_map(values: Any) -> dict[str, int]:
+    if not isinstance(values, dict):
+        return {}
+    normalized: dict[str, int] = {}
+    for key, raw_value in values.items():
+        label = str(key or "").strip()
+        if not label:
+            continue
+        try:
+            amount = int(raw_value or 0)
+        except (TypeError, ValueError):
+            continue
+        if amount <= 0:
+            continue
+        normalized[label] = normalized.get(label, 0) + amount
+    return dict(sorted(normalized.items(), key=lambda item: (-item[1], item[0])))
+
+
+def format_matrix_timestamp(value: Any) -> str:
+    if isinstance(value, (int, float)):
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 0.0
+        if numeric <= 0:
+            return "-"
+        try:
+            return datetime.fromtimestamp(numeric).strftime("%Y-%m-%d %H:%M:%S")
+        except (OverflowError, OSError, ValueError):
+            return str(value)
+    text = str(value or "").strip()
+    if not text:
+        return "-"
+    if text.endswith("Z"):
+        text = text[:-1] + " UTC"
+    return text.replace("T", " ")
+
+
+def format_matrix_count_line(label: str, values: Any, limit: int = 4) -> str:
+    counts = list(normalize_matrix_count_map(values).items())
+    if not counts:
+        return f"{label}: -"
+    visible = ", ".join(f"{name}={amount}" for name, amount in counts[:limit])
+    hidden = len(counts) - limit
+    if hidden > 0:
+        visible += f", +{hidden} weitere"
+    return f"{label}: {visible}"
+
+
+def matrix_preview_text(value: Any, limit: int = 4) -> str:
+    payload = dict(value or {})
+    preview = [str(entry) for entry in list(payload.get("preview", [])) if str(entry)]
+    if not preview:
+        count = int(payload.get("count", 0) or 0)
+        return "-" if count <= 0 else f"{count} Eintraege"
+    visible = ", ".join(preview[:limit])
+    count = int(payload.get("count", len(preview)) or len(preview))
+    hidden = max(0, count - min(len(preview), limit))
+    if hidden > 0 or bool(payload.get("truncated")):
+        visible += f", +{max(hidden, 1)} weitere"
+    return visible
+
+
+def normalize_matrix_search_terms(raw: str) -> list[str]:
+    return [part.strip().lower() for part in str(raw or "").split() if part.strip()]
+
+
+def matrix_conflict_search_text(conflict: dict[str, Any]) -> str:
+    parts: list[str] = [
+        str(conflict.get("character_name", "") or ""),
+        str(conflict.get("conflict_id", "") or ""),
+        str(conflict.get("max_severity", "") or ""),
+        str(conflict.get("max_tier", "") or ""),
+    ]
+    for group in list(conflict.get("merged_field_groups", [])):
+        parts.append(str(dict(group or {}).get("group", "") or ""))
+    parts.extend(normalize_matrix_count_map(conflict.get("severity_counts")).keys())
+    parts.extend(normalize_matrix_count_map(conflict.get("reason_code_counts")).keys())
+    for comparison in list(conflict.get("field_comparisons", [])):
+        current = dict(comparison or {})
+        parts.extend(
+            [
+                str(current.get("field", "") or ""),
+                str(current.get("field_conflict_id", "") or ""),
+                str(current.get("group", "") or ""),
+                str(current.get("merge_mode", "") or ""),
+                str(current.get("winner_side", "") or ""),
+                str(current.get("max_severity", "") or ""),
+                str(current.get("max_tier", "") or ""),
+            ]
+        )
+        parts.extend(normalize_matrix_count_map(current.get("severity_counts")).keys())
+        parts.extend(normalize_matrix_count_map(current.get("reason_code_counts")).keys())
+        delta_summary = dict(current.get("delta_summary", {}))
+        parts.extend(normalize_matrix_count_map(delta_summary.get("hidden_priority_reason_code_counts")).keys())
+        for key in ("added_preview", "changed_preview"):
+            parts.extend(str(entry) for entry in list(delta_summary.get(key, [])) if str(entry))
+        for entry in list(delta_summary.get("priority_preview", [])):
+            preview = dict(entry or {})
+            parts.extend(
+                [
+                    str(preview.get("delta_kind", "") or ""),
+                    str(preview.get("label", "") or ""),
+                    str(preview.get("reason_code", "") or ""),
+                    str(preview.get("reason", "") or ""),
+                    str(preview.get("severity", "") or ""),
+                    str(preview.get("tier", "") or ""),
+                ]
+            )
+    return " ".join(part.lower() for part in parts if part)
+
+
+def filter_matrix_conflicts(snapshot: dict[str, Any], query: str = "") -> list[dict[str, Any]]:
+    conflicts = list(snapshot.get("character_conflicts", []))
+    terms = normalize_matrix_search_terms(query)
+    if not terms:
+        return conflicts
+    return [
+        conflict
+        for conflict in conflicts
+        if all(term in matrix_conflict_search_text(dict(conflict or {})) for term in terms)
+    ]
+
+
+def format_matrix_priority_entry(entry: Any) -> str:
+    payload = dict(entry or {})
+    kind_map = {"plus": "Plus", "upgrade": "Upgrade"}
+    kind = kind_map.get(str(payload.get("delta_kind", "") or "").lower(), "Delta")
+    severity = str(payload.get("severity", "-") or "-")
+    tier = int(payload.get("tier", 0) or 0)
+    weight = int(payload.get("weight", 0) or 0)
+    return (
+        f"{kind} {payload.get('label', '?')} · {severity}/Tier {tier or '-'} · "
+        f"{payload.get('reason_code', '?')} · {payload.get('reason', '-')} · W{weight}"
+    )
+
+
+def format_matrix_hotspots(hotspots: Any) -> str:
+    payload = dict(hotspots or {})
+    top_characters = list(payload.get("top_characters", []))
+    reason_codes = list(payload.get("reason_codes", []))
+    peers = list(payload.get("peers", []))
+    lines = [color("=== Matrix-Hotspots ===", "36")]
+    if not top_characters and not reason_codes and not peers:
+        lines.append("Keine Hotspots gemeldet.")
+        return "\n".join(lines)
+    if top_characters:
+        rendered = ", ".join(
+            f"{entry.get('character_name', '?')} ({entry.get('max_severity', '-')})"
+            for entry in top_characters[:3]
+        )
+        lines.append(f"Charaktere: {rendered}")
+    if reason_codes:
+        rendered = ", ".join(
+            f"{entry.get('reason_code', '?')}={int(entry.get('count', 0) or 0)}"
+            for entry in reason_codes[:4]
+        )
+        lines.append(f"Gruppen: {rendered}")
+    if peers:
+        rendered = ", ".join(
+            f"{entry.get('server_id', '?')} ({entry.get('relation', '?')})"
+            for entry in peers[:3]
+        )
+        lines.append(f"Peers: {rendered}")
+    return "\n".join(lines)
+
+
+def format_matrix_peer_report(snapshot: dict[str, Any], limit: int = 8) -> str:
+    local = dict(snapshot.get("local", {}))
+    chosen = dict(snapshot.get("chosen", {}))
+    peers = list(snapshot.get("peers", []))
+    lines = [color("=== Matrix-Peers ===", "36")]
+    lines.append(
+        f"Lokal: {local.get('server_id', '?')} · Tick {int(local.get('latest_tick', 0) or 0)} · "
+        f"Savepoint {format_matrix_timestamp(local.get('latest_savepoint_ts', 0.0))}"
+    )
+    chosen_source = str(chosen.get("source", "local") or "local")
+    lines.append(
+        f"Bevorzugter Stand: {chosen.get('server_id', local.get('server_id', '?'))} "
+        f"via {chosen_source} · Tick {int(chosen.get('latest_tick', 0) or 0)}"
+    )
+    if not peers:
+        lines.append("Keine Peer-Diagnostik vorhanden.")
+        return "\n".join(lines)
+    for entry in peers[:limit]:
+        try:
+            tick_diff = int(entry.get("tick_diff", 0) or 0)
+        except (TypeError, ValueError):
+            tick_diff = 0
+        label_parts = [
+            str(entry.get("server_id", "?") or "?"),
+            "frisch" if bool(entry.get("fresh")) else "stale",
+            str(entry.get("relation", "?") or "?"),
+        ]
+        if tick_diff:
+            label_parts.append(f"Tickdiff {tick_diff:+d}")
+        if bool(entry.get("preferred")):
+            label_parts.append("bevorzugt")
+        source = str(entry.get("source", "") or "")
+        if source:
+            label_parts.append(source)
+        lines.append("- " + " · ".join(label_parts))
+    hidden = len(peers) - limit
+    if hidden > 0:
+        lines.append(f"... {hidden} weitere Peers ausgeblendet.")
+    return "\n".join(lines)
+
+
+def format_matrix_conflict_report(
+    snapshot: dict[str, Any],
+    limit: int = 5,
+    field_limit: int = 3,
+    query: str = "",
+) -> str:
+    summary = dict(snapshot.get("conflict_summary", {}))
+    conflicts = filter_matrix_conflicts(snapshot, query=query)
+    lines = [color("=== Matrix-Konflikte ===", "36")]
+    if query.strip():
+        lines.append(f"Filter: {query.strip()}")
+    lines.append(
+        f"Charakterkonflikte: {len(conflicts)}/{int(summary.get('character_conflict_count', len(conflicts)) or 0)} Treffer · "
+        f"Kritisch: {int(summary.get('critical_character_conflict_count', 0) or 0)} · "
+        f"Feld-Merges: {int(summary.get('field_merge_count', 0) or 0)}"
+    )
+    if not conflicts:
+        lines.append("Keine Character-Konflikte fuer diesen Filter gemeldet.")
+        return "\n".join(lines)
+    for conflict in conflicts[:limit]:
+        history = dict(conflict.get("history", {}))
+        merged_groups = ", ".join(
+            str(dict(group or {}).get("group", "?") or "?")
+            for group in list(conflict.get("merged_field_groups", []))
+            if str(dict(group or {}).get("group", "") or "")
+        )
+        lines.append(
+            "- "
+            + f"{conflict.get('character_name', '?')} "
+            + f"[{conflict.get('conflict_id', '?')}] "
+            + f"· {conflict.get('max_severity', '-')}/Tier {int(conflict.get('max_tier', 0) or 0)} "
+            + f"· {int(conflict.get('field_comparison_count', len(conflict.get('field_comparisons', []))) or 0)} Feldvergleiche "
+            + f"· gesehen {int(history.get('seen_count', 0) or 0)} "
+            + f"· offen {'ja' if history.get('still_open') else 'nein'}"
+        )
+        if merged_groups:
+            lines.append(f"    Gruppen: {merged_groups}")
+        comparisons = list(conflict.get("field_comparisons", []))
+        for comparison in comparisons[:field_limit]:
+            delta_summary = dict(comparison.get("delta_summary", {}))
+            priority_preview = list(delta_summary.get("priority_preview", []))
+            preview = ", ".join(
+                f"{entry.get('label', '?')} ({entry.get('reason_code', '?')})"
+                for entry in priority_preview[:2]
+            ) or "-"
+            lines.append(
+                "  * "
+                + f"{comparison.get('field', '?')} [{comparison.get('field_conflict_id', '?')}] "
+                + f"· {comparison.get('max_severity', '-')}/Tier {int(comparison.get('max_tier', 0) or 0)} "
+                + f"· {preview}"
+            )
+            hidden_reason_codes = normalize_matrix_count_map(delta_summary.get("hidden_priority_reason_code_counts"))
+            if hidden_reason_codes:
+                lines.append("    " + format_matrix_count_line("Verdeckt", hidden_reason_codes, limit=3))
+        hidden_fields = len(comparisons) - field_limit
+        if hidden_fields > 0:
+            lines.append(f"    ... {hidden_fields} weitere Feldvergleiche ausgeblendet.")
+    hidden_conflicts = len(conflicts) - limit
+    if hidden_conflicts > 0:
+        lines.append(f"... {hidden_conflicts} weitere Character-Konflikte ausgeblendet.")
+    return "\n".join(lines)
+
+
+def format_matrix_conflict_detail(snapshot: dict[str, Any], query: str, field_limit: int = 6) -> str:
+    lines = [color("=== Matrix-Konflikt-Drilldown ===", "36")]
+    normalized_query = query.strip()
+    if not normalized_query:
+        lines.append("Nutzung: matrix inspect <conflict_id|field_conflict_id|character|filter>")
+        return "\n".join(lines)
+    conflicts = filter_matrix_conflicts(snapshot, query=normalized_query)
+    if not conflicts:
+        lines.append(f"Keine Konflikte fuer '{normalized_query}' gefunden.")
+        return "\n".join(lines)
+    lines.append(f"Query: {normalized_query}")
+    lines.append(f"Treffer: {len(conflicts)}")
+    for conflict in conflicts[:3]:
+        history = dict(conflict.get("history", {}))
+        lines.append("")
+        lines.append(
+            f"{conflict.get('character_name', '?')} [{conflict.get('conflict_id', '?')}] "
+            + f"· {conflict.get('max_severity', '-')}/Tier {int(conflict.get('max_tier', 0) or 0)} "
+            + f"· offen {'ja' if history.get('still_open') else 'nein'} "
+            + f"· gesehen {int(history.get('seen_count', 0) or 0)}"
+        )
+        merged_groups = ", ".join(
+            str(dict(group or {}).get("group", "?") or "?")
+            for group in list(conflict.get("merged_field_groups", []))
+            if str(dict(group or {}).get("group", "") or "")
+        )
+        if merged_groups:
+            lines.append(f"Gruppen: {merged_groups}")
+        lines.append(format_matrix_count_line("Severity", conflict.get("severity_counts")))
+        lines.append(format_matrix_count_line("Reason-Codes", conflict.get("reason_code_counts")))
+        comparisons = list(conflict.get("field_comparisons", []))
+        query_lower = normalized_query.lower()
+        exact_field_matches = [
+            comparison
+            for comparison in comparisons
+            if str(dict(comparison or {}).get("field_conflict_id", "") or "").lower() == query_lower
+        ]
+        shown = exact_field_matches or comparisons[:field_limit]
+        for comparison in shown:
+            current = dict(comparison or {})
+            delta_summary = dict(current.get("delta_summary", {}))
+            lines.append(
+                "  * "
+                + f"{current.get('field', '?')} [{current.get('field_conflict_id', '?')}] "
+                + f"· {current.get('max_severity', '-')}/Tier {int(current.get('max_tier', 0) or 0)}"
+            )
+            lines.append(
+                "    "
+                + f"Gruppe: {current.get('group', '-') or '-'} · "
+                + f"Merge: {current.get('merge_mode', '-') or '-'} · "
+                + f"Gewinner: {current.get('winner_side', '-') or '-'}"
+            )
+            lines.append("    " + format_matrix_count_line("Severity", current.get("severity_counts"), limit=3))
+            lines.append("    " + format_matrix_count_line("Reason-Codes", current.get("reason_code_counts"), limit=3))
+            lines.append("    " + f"Preferred: {matrix_preview_text(current.get('preferred'))}")
+            lines.append("    " + f"Fallback: {matrix_preview_text(current.get('fallback'))}")
+            lines.append("    " + f"Gemerged: {matrix_preview_text(current.get('merged'))}")
+            lines.append(
+                "    "
+                + f"Delta: total {int(delta_summary.get('delta_count', 0) or 0)} · "
+                + f"neu {int(delta_summary.get('added_count', 0) or 0)} · "
+                + f"upgrades {int(delta_summary.get('changed_count', 0) or 0)}"
+            )
+            added_preview = list(delta_summary.get("added_preview", []))
+            changed_preview = list(delta_summary.get("changed_preview", []))
+            if added_preview:
+                lines.append("    " + f"Neu: {', '.join(str(entry) for entry in added_preview[:4])}")
+            if changed_preview:
+                lines.append("    " + f"Upgrades: {', '.join(str(entry) for entry in changed_preview[:4])}")
+            priority_preview = list(delta_summary.get("priority_preview", []))
+            if priority_preview:
+                lines.append("    Priorisiert:")
+                for entry in priority_preview[:4]:
+                    lines.append("      - " + format_matrix_priority_entry(entry))
+            hidden_reason_codes = normalize_matrix_count_map(delta_summary.get("hidden_priority_reason_code_counts"))
+            if hidden_reason_codes:
+                lines.append("    " + format_matrix_count_line("Verdeckt", hidden_reason_codes, limit=3))
+        hidden_fields = len(comparisons) - len(shown)
+        if hidden_fields > 0 and not exact_field_matches:
+            lines.append(f"    ... {hidden_fields} weitere Feldvergleiche fuer diesen Konflikt ausgeblendet.")
+    hidden_conflicts = len(conflicts) - 3
+    if hidden_conflicts > 0:
+        lines.append("")
+        lines.append(f"... {hidden_conflicts} weitere Konflikte fuer '{normalized_query}' ausgeblendet.")
+    return "\n".join(lines)
+
+
+def format_matrix_health_report(
+    snapshot: dict[str, Any],
+    *,
+    include_hotspots: bool = False,
+    include_peers: bool = False,
+) -> str:
+    health = dict(snapshot.get("health", {}))
+    lines = [color("=== Servermatrix ===", "36")]
+    lines.append(
+        f"Status: {health.get('status', 'unknown')} · Grund: {health.get('reason', '-')} · "
+        f"fresh/stale: {int(health.get('fresh_peer_count', 0) or 0)}/{int(health.get('stale_peer_count', 0) or 0)}"
+    )
+    lines.append(
+        f"Letzter Sync: {health.get('last_sync_result', '-') or '-'} "
+        + f"@ Tick {int(health.get('last_sync_tick', 0) or 0)} "
+        + f"via {health.get('last_sync_source', '-') or '-'} "
+        + f"({format_matrix_timestamp(health.get('last_sync_ts', 0.0))})"
+    )
+    max_tier = int(health.get("max_conflict_tier", 0) or 0)
+    tier_text = f"Tier {max_tier}" if max_tier > 0 else "Tier -"
+    lines.append(
+        f"Konflikte: {int(health.get('character_conflict_count', 0) or 0)} Charaktere · "
+        f"{int(health.get('field_merge_count', 0) or 0)} Feld-Merges · "
+        f"{int(health.get('critical_character_conflict_count', 0) or 0)} kritisch"
+    )
+    lines.append(f"Maximale Schwere: {health.get('max_conflict_severity', '-') or '-'} · {tier_text}")
+    lines.append(format_matrix_count_line("Severity", health.get("priority_severity_counts")))
+    lines.append(format_matrix_count_line("Reason-Codes", health.get("priority_reason_code_counts")))
+    if include_hotspots:
+        lines.append("")
+        lines.append(format_matrix_hotspots(snapshot.get("hotspots", {})))
+    if include_peers:
+        lines.append("")
+        lines.append(format_matrix_peer_report(snapshot))
+    return "\n".join(lines)
+
+
+def compact_matrix_health_hint(snapshot: dict[str, Any] | None) -> str:
+    if not isinstance(snapshot, dict):
+        return "Mx: -"
+    health = dict(snapshot.get("health", {}))
+    raw_status = str(health.get("status", "") or "").strip().lower()
+    if not raw_status:
+        return "Mx: -"
+    status_map = {
+        "healthy": "ok",
+        "degraded": "warn",
+        "isolated": "solo",
+        "syncing-needed": "sync",
+        "disabled": "off",
+        "unavailable": "na",
+    }
+    status = status_map.get(raw_status, raw_status[:6] or "?")
+    try:
+        peers = int(health.get("fresh_peer_count", 0) or 0)
+    except (TypeError, ValueError):
+        peers = 0
+    try:
+        conflicts = int(health.get("character_conflict_count", 0) or 0)
+    except (TypeError, ValueError):
+        conflicts = 0
+    severity = str(health.get("max_conflict_severity", "") or "").strip().lower()
+    if raw_status == "healthy":
+        return f"Mx: {status}/{peers}p"
+    details: list[str] = []
+    if conflicts > 0:
+        details.append(f"{conflicts}k")
+    if severity:
+        details.append(severity)
+    if not details:
+        reason = str(health.get("reason", "") or "").strip().lower()
+        if reason:
+            details.append(reason[:8])
+    return f"Mx: {status}/{'/'.join(details[:2])}" if details else f"Mx: {status}"
+
+
+def matrix_command_tree() -> str:
+    return "\n".join(
+        [
+            color("=== Matrix Command Tree ===", "36"),
+            "matrix help",
+            "  Zeigt diese Matrix-/Peer-Diagnoseübersicht an.",
+            "matrix health",
+            "  Zeigt den kompakten Matrix-Gesundheitszustand mit Severity- und Reason-Code-Rollups.",
+            "matrix status",
+            "  Zeigt denselben Gesundheitszustand plus bevorzugten Peer-Stand und Peer-Liste.",
+            "matrix conflicts [filter]",
+            "  Zeigt Character-Konflikte mit Feld-Merges, IDs und Kurz-Diffs; optional gefiltert.",
+            "matrix inspect <conflict_id|field_conflict_id|character>",
+            "  Zeigt den Drilldown fuer einen Konflikt oder ein bestimmtes Feld.",
+            "matrix hotspots",
+            "  Zeigt auffällige Charaktere, Gruppen und Peers aus dem Hotspot-Rollup.",
+            "matrix peers",
+            "  Zeigt die ausführliche Peer-Diagnose ohne Konfliktfokus.",
+        ]
+    )
+
+
+def matrix_command_help(topic: str = "") -> str:
+    normalized = topic.strip().lower()
+    help_map = {
+        "health": (
+            "matrix health\n"
+            "Liest `/api/matrix/health` und zeigt den kompakten Matrixzustand "
+            "inklusive Severity-/Reason-Code-Rollups und Hotspots."
+        ),
+        "status": (
+            "matrix status\n"
+            "Liest `/api/matrix/status` und zeigt dieselbe Matrixdiagnose "
+            "zusätzlich mit Peer-Liste und bevorzugtem Stand."
+        ),
+        "conflicts": (
+            "matrix conflicts [filter]\n"
+            "Zeigt Character-Konflikte, stabile conflict_id-/field_conflict_id-Anker, "
+            "Severity/Tier und kurze Priorisierungsdeltas. Ein optionaler Filter kann "
+            "nach Charakter, Severity, Reason-Code, Feld oder Konflikt-ID suchen."
+        ),
+        "inspect": (
+            "matrix inspect <conflict_id|field_conflict_id|character>\n"
+            "Zeigt einen Drilldown fuer einen konkreten Character-Konflikt oder ein "
+            "einzelnes Feld inklusive Preferred/Fallback/Gemerged-Preview und "
+            "priorisierten Delta-Gruenden."
+        ),
+        "hotspots": (
+            "matrix hotspots\n"
+            "Zeigt nur die verdichteten Hotspots für Charaktere, Gruppen und Peers."
+        ),
+        "peers": (
+            "matrix peers\n"
+            "Zeigt die Peer-Diagnose aus `/api/matrix/status` mit Freshness, Relation, Tickdiff und Preferred-Hinweis."
+        ),
+    }
+    if not normalized:
+        return matrix_command_tree()
+    return help_map.get(normalized, matrix_command_tree())
+
+
+def handle_matrix_command(raw: str, api: ApiClient) -> bool:
+    if not is_matrix_command(raw):
+        return False
+    parts = raw.strip().split(maxsplit=2)
+    action = parts[1].lower() if len(parts) > 1 else "help"
+    query = parts[2].strip() if len(parts) > 2 else ""
+    if len(parts) > 2 and parts[2].strip().lower() in {"help", "--help", "-h", "?"}:
+        print(matrix_command_help(action))
+        return True
+    if action in {"help", "tree"}:
+        print(matrix_command_help(query))
+        return True
+    try:
+        if action in {"health", "show", "summary"}:
+            print(format_matrix_health_report(api.matrix_health(), include_hotspots=True))
+            return True
+        if action in {"status"}:
+            print(format_matrix_health_report(api.matrix_status(), include_hotspots=True, include_peers=True))
+            return True
+        if action in {"conflicts"}:
+            print(format_matrix_conflict_report(api.matrix_health(), query=query))
+            return True
+        if action in {"inspect", "conflict"}:
+            print(format_matrix_conflict_detail(api.matrix_health(), query))
+            return True
+        if action in {"hotspots"}:
+            print(format_matrix_hotspots(api.matrix_health().get("hotspots", {})))
+            return True
+        if action in {"peers"}:
+            print(format_matrix_peer_report(api.matrix_status()))
+            return True
+    except Exception as exc:
+        print(f"Matrixdiagnose nicht verfügbar: {exc}")
+        print("Der private ShellRPG-server muss `/api/matrix/health` bzw. `/api/matrix/status` bereitstellen.")
+        return True
+    print(f"Unbekannter matrix-Unterbefehl: {action}")
+    print(matrix_command_tree())
+    return True
+
+
 # Erkennt, ob der eingegebene Text als Spielkommando und nicht als normales Shell-Kommando behandelt werden soll.
 def is_game_command(raw: str) -> bool:
     if not raw:
@@ -941,7 +1486,12 @@ def venus_scale(label: str) -> str:
 
 
 # Erzeugt die vier kompakten Statuszeilen und kuerzt sie strikt auf genau eine physische Terminalzeile ein.
-def compact_status_lines(snapshot: dict, spinner_index: int, columns: int | None = None) -> list[str]:
+def compact_status_lines(
+    snapshot: dict,
+    spinner_index: int,
+    columns: int | None = None,
+    matrix_snapshot: dict[str, Any] | None = None,
+) -> list[str]:
     width = columns or shutil.get_terminal_size((100, 30)).columns
     status = snapshot["status"]
     action = status.get("active_action", "idle")
@@ -955,7 +1505,7 @@ def compact_status_lines(snapshot: dict, spinner_index: int, columns: int | None
         live,
         f"[ {status['character_name']} | {status['class_name']}/{status['race_name']} | Lvl {status['level']} | {location} [{status['coords_label']}] | HP {status['hp_current']}/{status['hp_max']} | MP {status['mana_current']}/{status['mana_max']} ]",
         f"[ {status['gold']} Gold / {status['silver']} Silber | Hunger: {status['hunger']} | Wetter: {status.get('weather_label','?')} | Zeit: {status.get('time_label','?')} ]",
-        f"[ Mond: {moon_scale(status.get('moon_label','?'))} {status.get('moon_label','?')} | Venus: {venus_scale(status.get('venus_label','?'))} {status.get('venus_label','?')} | Aktion: {action} | Auto-Battle: {'an' if status.get('auto_battle_enabled') else 'aus'} ]",
+        f"[ Mond: {moon_scale(status.get('moon_label','?'))} {status.get('moon_label','?')} | Venus: {venus_scale(status.get('venus_label','?'))} {status.get('venus_label','?')} | Aktion: {action} | Auto-Battle: {'an' if status.get('auto_battle_enabled') else 'aus'} | {compact_matrix_health_hint(matrix_snapshot)} ]",
     ]
     return [fit_plain_terminal_line(line, width) for line in lines]
 
@@ -966,19 +1516,39 @@ class LiveContext:
     snapshot: dict
     spinner_index: int = 0
     last_media_file: str = ""
+    matrix_snapshot: dict[str, Any] | None = None
+    last_matrix_refresh_ts: float = 0.0
+
+
+def refresh_matrix_health(api: ApiClient, context: LiveContext, force: bool = False) -> None:
+    now = time.time()
+    if not force and context.last_matrix_refresh_ts > 0.0:
+        if now - context.last_matrix_refresh_ts < MATRIX_HEALTH_REFRESH_SECONDS:
+            return
+    try:
+        context.matrix_snapshot = api.matrix_health()
+    except Exception:
+        if context.matrix_snapshot is None:
+            context.matrix_snapshot = {"health": {"status": "unavailable", "reason": "matrix-unreachable"}}
+    finally:
+        context.last_matrix_refresh_ts = now
 
 
 # Holt den aktuellen Serverzustand seriell und vermeidet nebenlaeufige Terminalschreiber waehrend der Eingabe.
 def refresh_live_context(api: ApiClient, context: LiveContext) -> None:
     context.snapshot = api.state()
     context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
+    refresh_matrix_health(api, context)
 
 
 # Rendert HUD und Prompt kontrolliert oberhalb der Shell-Zeile und kuerzt dabei alle UI-Zeilen auf die Terminalbreite.
 def render_live_prompt(renderer: ReservedTerminalRenderer, context: LiveContext, cwd: Path) -> None:
     columns = renderer.terminal_size().columns
     renderer.reserve(HEADER_ROWS)
-    renderer.draw_above_anchor(compact_status_lines(context.snapshot, context.spinner_index, columns), HEADER_ROWS)
+    renderer.draw_above_anchor(
+        compact_status_lines(context.snapshot, context.spinner_index, columns, matrix_snapshot=context.matrix_snapshot),
+        HEADER_ROWS,
+    )
     renderer.write_prompt(format_shell_prompt(cwd, columns))
 
 
@@ -1105,6 +1675,7 @@ def main(argv: list[str] | None = None) -> int:
     write_profile(profile)
 
     context = LiveContext(snapshot=bootstrap)
+    refresh_matrix_health(api, context, force=True)
 
     if args.command:
         if is_character_command(args.command):
@@ -1122,6 +1693,8 @@ def main(argv: list[str] | None = None) -> int:
                 profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
                 write_profile(profile)
                 return 0
+        if handle_matrix_command(args.command, api):
+            return 0
         handled, snapshot = handle_control_command(args.command, api)
         if handled:
             if snapshot is not None:
@@ -1164,6 +1737,8 @@ def main(argv: list[str] | None = None) -> int:
                 context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
             profile = sync_profile_identity(profile, api, snapshot=context.snapshot)
             write_profile(profile)
+            continue
+        if handle_matrix_command(raw, api):
             continue
         control_handled, snapshot = handle_control_command(raw, api)
         if control_handled:

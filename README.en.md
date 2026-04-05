@@ -23,6 +23,11 @@
 
 **Governance:** `CLIENT-PUBLIC`
 
+## Maintenance Note
+
+- For relevant content, contract, feature, or editorial changes touching this
+  endpoint, update `README.md`, `README.en.md`, and `VERSION` together.
+
 ## 2. Dependencies
 
 - Python 3.11 or newer
@@ -59,6 +64,19 @@ Current canon preparation:
 - the same contract can now also surface a redacted urban diagnosis from the
   persisted urban suspicion pool; tile hint and diagnosis stay bound to the
   same server-side registry refs
+- the terminal client now also ships a local `matrix` command tree for
+  `/api/matrix/health` and `/api/matrix/status`, so the same severity,
+  conflict, hotspot, and peer diagnostics can be inspected in a shell-
+  friendly view
+- the same matrix path can now also filter character conflicts locally
+  (`matrix conflicts <filter>`) and drill down by character name,
+  `conflict_id`, or `field_conflict_id` (`matrix inspect <...>`)
+- the drilldown shows preferred, fallback, and merged previews, merge
+  mode, winner side, and prioritized delta reasons directly inside the
+  terminal output instead of only rendering the short conflict list
+- the same matrix health is now also surfaced as a compact `Mx:` hint in
+  the live HUD line without displacing the shell prompt or the actual game
+  snapshot
 
 ## 4. Feedback & Contribution
 

@@ -23,6 +23,12 @@ Deutsch | [English](README.en.md)
 
 **Governance:** `CLIENT-PUBLIC`
 
+## Pflegehinweis
+
+- Bei relevanten Content-, Contract-, Feature- oder Redaktionsänderungen an
+  diesem Endpunkt `README.md`, `README.en.md` und `VERSION` gemeinsam
+  aktualisieren.
+
 ## 2. Abhängigkeiten
 
 - Python 3.11 oder neuer
@@ -61,6 +67,20 @@ Aktuelle Kanonvorbereitung:
   `Stadtdiagnose: ...` aus dem persistierten urbanen Verdachtspool zeigen;
   Tile-Hinweis und Diagnose bleiben dabei an dieselben serverseitigen
   Registry-Refs gebunden
+- der Terminal-Client besitzt jetzt zusaetzlich einen lokalen
+  `matrix`-Befehlsbaum fuer `/api/matrix/health` und `/api/matrix/status`
+  und kann damit dieselben Severity-, Konflikt-, Hotspot- und Peer-
+  Diagnosedaten wie das WWW in shellfreundlicher Form anzeigen
+- derselbe Matrixpfad kann Character-Konflikte jetzt lokal auch filtern
+  (`matrix conflicts <filter>`) und gezielt per Charactername,
+  `conflict_id` oder `field_conflict_id` drilldownen
+  (`matrix inspect <...>`)
+- der Drilldown zeigt Preferred-, Fallback- und Gemerged-Preview, Merge-
+  Modus, Gewinnerseite sowie priorisierte Delta-Gruende direkt in der
+  Terminalausgabe, statt nur die Kurzliste der Konflikte zu rendern
+- dieselbe Matrix-Gesundheit erscheint jetzt auch als kompakter `Mx:`-
+  Hinweis in der laufenden HUD-Zeile, ohne den Shell-Prompt oder den
+  eigentlichen Spiel-Snapshot zu verdrängen
 
 ## 4. Feedback & Contribution
 

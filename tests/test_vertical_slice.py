@@ -43,3 +43,33 @@ def test_resolve_character_selection_accepts_index_name_and_id() -> None:
     assert resolve_character_selection("2", entries)["character_id"] == "char-b"
     assert resolve_character_selection("Lyra", entries)["character_id"] == "char-a"
     assert resolve_character_selection("char-b", entries)["character_name"] == "Korin"
+
+
+def test_api_client_matrix_health_uses_health_path() -> None:
+    client = object.__new__(ApiClient)
+    seen: list[str] = []
+
+    def fake_get(path: str) -> dict:
+        seen.append(path)
+        return {"ok": True, "path": path}
+
+    client.get = fake_get  # type: ignore[assignment]
+    result = client.matrix_health()
+
+    assert result["path"] == "/api/matrix/health"
+    assert seen == ["/api/matrix/health"]
+
+
+def test_api_client_matrix_status_uses_status_path() -> None:
+    client = object.__new__(ApiClient)
+    seen: list[str] = []
+
+    def fake_get(path: str) -> dict:
+        seen.append(path)
+        return {"ok": True, "path": path}
+
+    client.get = fake_get  # type: ignore[assignment]
+    result = client.matrix_status()
+
+    assert result["path"] == "/api/matrix/status"
+    assert seen == ["/api/matrix/status"]

@@ -9,6 +9,7 @@ from shellrpg_client.app import (
     SCROLL_PANEL_ROWS,
     build_intro_panel_lines,
     build_scroll_panel_lines,
+    compact_matrix_health_hint,
     compact_status_lines,
     render_live_prompt,
     run_shell_command,
@@ -54,6 +55,21 @@ def test_compact_status_lines_stay_within_terminal_width() -> None:
     assert all(len(strip_ansi(line)) <= 47 for line in lines)
 
 
+def test_compact_status_lines_include_matrix_hint() -> None:
+    lines = compact_status_lines(
+        make_snapshot(),
+        spinner_index=2,
+        columns=160,
+        matrix_snapshot={"health": {"status": "degraded", "character_conflict_count": 2, "max_conflict_severity": "high"}},
+    )
+    assert any("Mx: warn/2k/high" in strip_ansi(line) for line in lines)
+
+
+def test_compact_matrix_health_hint_reports_healthy_peer_count() -> None:
+    hint = compact_matrix_health_hint({"health": {"status": "healthy", "fresh_peer_count": 3}})
+    assert hint == "Mx: ok/3p"
+
+
 def test_intro_panel_lines_fit_small_terminal_width() -> None:
     lines = build_intro_panel_lines(
         52,
@@ -85,7 +101,11 @@ def test_format_shell_prompt_shortens_long_path_without_wrapping() -> None:
 def test_render_live_prompt_leaves_prompt_as_last_visible_line() -> None:
     stream = io.StringIO()
     renderer = ReservedTerminalRenderer(stream=stream, fallback_columns=60, fallback_lines=20)
-    context = LiveContext(snapshot=make_snapshot(), spinner_index=1)
+    context = LiveContext(
+        snapshot=make_snapshot(),
+        spinner_index=1,
+        matrix_snapshot={"health": {"status": "degraded", "character_conflict_count": 1, "max_conflict_severity": "medium"}},
+    )
     render_live_prompt(renderer, context, Path(r"d:\Projekte\ShellRPG\ShellRPG-client"))
     plain = strip_ansi(stream.getvalue()).replace("\r", "\n")
     visible_lines = [line for line in plain.splitlines() if line.strip()]

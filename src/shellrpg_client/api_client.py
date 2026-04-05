@@ -147,3 +147,11 @@ class ApiClient:
     # Gibt die aktive Steuerungsrolle fuer diese Sitzung wieder frei.
     def release_control(self) -> dict:
         return self._request("/api/control/release", "POST", {})
+
+    # Liest die kompakte Matrix-/Konfliktgesundheit fuer denselben Public-Contract wie WWW/Admin-Views.
+    def matrix_health(self) -> dict:
+        return self.get("/api/matrix/health")
+
+    # Liest die erweiterte Matrix-Diagnose inklusive Peer-Liste fuer Terminal-Drilldowns.
+    def matrix_status(self) -> dict:
+        return self.get("/api/matrix/status")
