@@ -155,3 +155,7 @@ class ApiClient:
     # Liest die erweiterte Matrix-Diagnose inklusive Peer-Liste fuer Terminal-Drilldowns.
     def matrix_status(self) -> dict:
         return self.get("/api/matrix/status")
+
+    # Liest den redigierten Social-Catalog inklusive rev88-Kampf- und Attributglossar.
+    def social_catalog(self) -> dict:
+        return self.get("/api/social/catalog")

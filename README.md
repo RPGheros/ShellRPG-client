@@ -8,7 +8,7 @@ Deutsch | [English](README.en.md)
 ║  /_/\\   A U F G E R O L L T E   S C H R I F T R O L L E         /\_\     ║
 ║  \_\/____________________________________________________________\/_/     ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
-# ShellRPG-client · v0.7.6
+# ShellRPG-client · v0.8.0
 
 ## 1. Beschreibung
 
@@ -57,6 +57,12 @@ Aktuelle Kanonvorbereitung:
   unterscheiden
 - die Ausruestungsdarstellung wird auf sechs Ringslots pro Charakter
   vorbereitet
+- derselbe serverseitige `social_catalog`-Vertrag traegt jetzt auch ein
+  gruppiertes Kampf- und Attributglossar mit Rollenfamilien,
+  Magieschulen, Stealth-/Support-Archetypen und einem zweiten
+  Attributring; der Terminal-Client kann diesen Pfad jetzt lokal ueber
+  `catalog`, `catalog combat`, `catalog attributes` oder `social catalog`
+  anzeigen
 - wenn der Server redigierte Tile-Welthinweise liefert, zeigt die
   Kartenansicht jetzt unter der Karte ein `Milieu: ...`, statt dafuer einen
   separaten Client-Sonderpfad mit eigener Begriffswahrheit aufzubauen
@@ -81,6 +87,15 @@ Aktuelle Kanonvorbereitung:
 - dieselbe Matrix-Gesundheit erscheint jetzt auch als kompakter `Mx:`-
   Hinweis in der laufenden HUD-Zeile, ohne den Shell-Prompt oder den
   eigentlichen Spiel-Snapshot zu verdrängen
+- der Terminal-Client konsumiert jetzt die Sekundenfelder des V076-
+  Public-Statusvertrags und zeigt echte Countdowns fuer Reise,
+  Goldzyklus, Combat-Reaktionsfenster und Idle-Drop, waehrend der Server
+  intern im `1s`-Tick und sichtbar im `5s`-Statuspuls bleibt
+- die laufende Shell-UI nutzt jetzt ein festes Live-HUD: ueber dem Prompt
+  stehen eine optionale Aktivitaetsanimation und fuenf farbige ANSI-/ASCII-
+  Statuszeilen fuer Activity, Charakter, HP/MP/Ressourcen, Weltzeit und
+  Kosmos/Matrix; diese Zeilen aktualisieren sich auch ohne neue Eingabe im
+  sichtbaren Statuspuls
 
 ## 4. Feedback & Contribution
 

@@ -42,6 +42,7 @@ def make_snapshot() -> dict:
             "moon_label": "Neumond",
             "venus_label": "Morgenstern",
             "active_action": "combat",
+            "reaction_seconds_left": 60,
             "auto_battle_enabled": False,
             "overlay_message": "Der Ritter prueft die Umgebung und wartet auf den naechsten Befehl",
             "media_terminal_file": "",
@@ -53,6 +54,9 @@ def test_compact_status_lines_stay_within_terminal_width() -> None:
     lines = compact_status_lines(make_snapshot(), spinner_index=2, columns=48)
     assert len(lines) == HEADER_ROWS
     assert all(len(strip_ansi(line)) <= 47 for line in lines)
+    assert "\x1b[" in "".join(lines)
+    assert strip_ansi(lines[0]).startswith("ANIM")
+    assert any("<3 HP" in strip_ansi(line) for line in lines)
 
 
 def test_compact_status_lines_include_matrix_hint() -> None:
@@ -63,6 +67,30 @@ def test_compact_status_lines_include_matrix_hint() -> None:
         matrix_snapshot={"health": {"status": "degraded", "character_conflict_count": 2, "max_conflict_severity": "high"}},
     )
     assert any("Mx: warn/2k/high" in strip_ansi(line) for line in lines)
+
+
+def test_compact_status_lines_include_countdown() -> None:
+    snapshot = make_snapshot()
+    snapshot["status"]["active_action"] = "walk"
+    snapshot["status"]["reaction_seconds_left"] = 0
+    snapshot["status"]["activity_type"] = "walk"
+    snapshot["status"]["activity_eta_seconds"] = 239
+    lines = compact_status_lines(snapshot, spinner_index=2, columns=160)
+
+    assert any("Reise: 03:59" in strip_ansi(line) for line in lines)
+
+
+def test_compact_status_lines_keep_five_status_rows_under_animation() -> None:
+    lines = compact_status_lines(make_snapshot(), spinner_index=0, columns=120)
+    plain = [strip_ansi(line) for line in lines]
+
+    assert len(plain) == 6
+    assert plain[0].startswith("ANIM")
+    assert plain[1].startswith("ACT")
+    assert "CHAR Wuffie" in plain[2]
+    assert "<3 HP 52/104" in plain[3]
+    assert plain[4].startswith("WETTER")
+    assert "MATRIX" in plain[5]
 
 
 def test_compact_matrix_health_hint_reports_healthy_peer_count() -> None:

@@ -1,12 +1,44 @@
 from __future__ import annotations
 
 
+def format_countdown(seconds: int | float | str, *, combat: bool = False) -> str:
+    try:
+        total = max(0, int(float(seconds)))
+    except (TypeError, ValueError):
+        total = 0
+    if combat and total <= 60:
+        return f"00:{total:02d}"
+    minutes, rest = divmod(total, 60)
+    return f"{minutes:02d}:{rest:02d}"
+
+
+def status_countdown(status: dict) -> str:
+    if status.get("reaction_seconds_left"):
+        return f"Combat: {format_countdown(status.get('reaction_seconds_left', 0), combat=True)}"
+    if int(status.get("activity_eta_seconds") or 0) > 0:
+        action = status.get("activity_type") or status.get("active_action") or "Aktion"
+        resource = status.get("activity_resource_type") or ""
+        labels = {
+            "walk": "Reise",
+            "gather": "Goldzyklus" if resource == "gold" else "Sammeln",
+            "fish": "Angeln",
+            "hunt": "Jagd",
+            "explore": "Erkundung",
+        }
+        return f"{labels.get(action, str(action).title())}: {format_countdown(status.get('activity_eta_seconds', 0))}"
+    if int(status.get("idle_reward_eta_seconds") or 0) > 0:
+        return f"Idle-Drop: {format_countdown(status.get('idle_reward_eta_seconds', 0))}"
+    return ""
+
+
 def _slot_label(slot: str) -> str:
     return str(slot or "").replace("_", " ")
 
 
 def render_status(status: dict) -> str:
     extras = f" | Fenster {status['reaction_seconds_left']}s" if status.get("reaction_seconds_left") else ""
+    countdown = status_countdown(status)
+    countdown_text = f" | Countdown {countdown}" if countdown else ""
     dialogue = f" | Dialog: {status['dialogue_target']}" if status.get("dialogue_mode") else ""
     auto = f" | Auto-Battle: {'an' if status.get('auto_battle_enabled') else 'aus'} ({status.get('auto_battle_mode','balanced')})"
     return (
@@ -14,7 +46,7 @@ def render_status(status: dict) -> str:
         f"{status['location_label']} [{status['coords_label']}] | HP {status['hp_current']}/{status['hp_max']} | "
         f"MP {status['mana_current']}/{status['mana_max']} | {status['gold']}g/{status['silver']}s | Hunger: {status['hunger']} | "
         f"Wetter: {status.get('weather_label','?')} | Zeit: {status.get('time_label','?')} | Mond: {status.get('moon_label','?')} | Venus: {status.get('venus_label','?')} | "
-        f"Aktion: {status['active_action']}{extras}{dialogue}{auto} | Tick {status['tick_value']}]"
+        f"Aktion: {status['active_action']}{extras}{countdown_text}{dialogue}{auto} | Tick {status['tick_value']}]"
     )
 
 
@@ -31,6 +63,9 @@ def render_overlay(status: dict) -> str:
         lines.append(f"Spannung: {status['faction_tension']}")
     if status.get("combat_choices"):
         lines.append("Reaktionsfenster: " + ", ".join(status["combat_choices"]))
+    countdown = status_countdown(status)
+    if countdown:
+        lines.append(f"Countdown: {countdown}")
     return "\n".join(lines)
 
 

@@ -4,6 +4,7 @@ src/shellrpg_client/__init__.py
 src/shellrpg_client/__main__.py
 src/shellrpg_client/api_client.py
 src/shellrpg_client/app.py
+src/shellrpg_client/terminal_layout.py
 src/shellrpg_client/ui.py
 src/shellrpg_client/version.py
 src/shellrpg_client.egg-info/PKG-INFO
@@ -20,5 +21,6 @@ src/shellrpg_client/statusline/spinner.py
 tests/test_entrypoint.py
 tests/test_foundations.py
 tests/test_phase_e.py
+tests/test_terminal_layout.py
 tests/test_v076.py
 tests/test_vertical_slice.py

@@ -8,7 +8,7 @@
 ║  /_/\\   U N R O L L E D   S C R O L L                            /\_\     ║
 ║  \_\/____________________________________________________________\/_/     ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
-# ShellRPG-client · v0.7.6
+# ShellRPG-client · v0.8.0
 
 ## 1. Description
 
@@ -55,6 +55,11 @@ Current canon preparation:
 - future UI text must distinguish monster, hive, wildlife, nature, and demons
   more clearly
 - equipment rendering is being prepared for six ring slots per character
+- the same server-side `social catalog` contract now also carries grouped
+  combat and attribute glossaries with role families, magic schools,
+  stealth/support archetypes, and a second attribute ring; the terminal
+  client can now show that path locally through `catalog`, `catalog combat`,
+  `catalog attributes`, or `social catalog`
 - when the server delivers redacted tile world hints, the map view now shows
   a `Milieu: ...` line below the map instead of inventing a separate
   client-only terminology path
@@ -77,6 +82,14 @@ Current canon preparation:
 - the same matrix health is now also surfaced as a compact `Mx:` hint in
   the live HUD line without displacing the shell prompt or the actual game
   snapshot
+- the terminal client now consumes the second-based V076 public status
+  fields and renders real countdowns for travel, gold cycles, combat
+  reaction windows, and idle drops while the server keeps its internal `1s`
+  tick and visible `5s` status pulse
+- the live shell UI now uses a fixed HUD: above the prompt it reserves an
+  optional activity animation plus five colored ANSI/ASCII status rows for
+  activity, character, HP/MP/resources, world time, and cosmos/matrix; those
+  rows refresh during idle input waits on the visible status pulse
 
 ## 4. Feedback & Contribution
 

@@ -9,3 +9,5 @@ class CharacterViewState:
     hp_current: int
     hp_max: int
     tick_value: int
+    activity_eta_seconds: int = 0
+    idle_reward_eta_seconds: int = 0

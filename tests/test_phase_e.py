@@ -4,9 +4,11 @@ from shellrpg_client.api_client import ApiClient
 from shellrpg_client.app import (
     format_matrix_conflict_detail,
     control_write_allowed,
+    format_social_catalog_report,
     format_matrix_conflict_report,
     format_matrix_health_report,
     is_character_command,
+    is_catalog_command,
     is_control_command,
     is_game_command,
     is_matrix_command,
@@ -45,6 +47,13 @@ def test_matrix_command_detection_accepts_matrix_diagnostics() -> None:
     assert is_matrix_command("control status") is False
 
 
+def test_catalog_command_detection_accepts_social_catalog_aliases() -> None:
+    assert is_catalog_command("catalog combat") is True
+    assert is_catalog_command("glossary attributes") is True
+    assert is_catalog_command("social catalog") is True
+    assert is_catalog_command("matrix health") is False
+
+
 def test_observer_safe_game_command_allows_read_only_catalog_paths() -> None:
     snapshot = {
         "status": {"control_mode": "controller-observer", "control_write_allowed": False},
@@ -71,6 +80,27 @@ def test_api_client_remembers_live_event_cursor_from_snapshot_payload() -> None:
 
     assert client.last_live_event_id == 7
     assert client.last_live_event_reason == "control-takeover"
+
+
+def test_social_catalog_report_surfaces_combat_and_attribute_groups() -> None:
+    rendered = format_social_catalog_report(
+        {
+            "ok": True,
+            "rev88_combat_glossary": {
+                "role_families": [{"entry_id": "front_fighter", "label": {"de": "Frontkaempfer"}}],
+                "magic_schools": [{"entry_id": "light_school", "label": {"de": "Licht"}}],
+                "stealth_archetypes": [{"entry_id": "infiltrator", "label": {"de": "Infiltrator"}}],
+                "support_archetypes": [{"entry_id": "healer", "label": {"de": "Heiler"}}],
+            },
+            "rev88_attribute_glossary": {
+                "second_ring": [{"entry_id": "willpower", "label": {"de": "Willenskraft"}}],
+                "runtime_bridge_terms": [{"entry_id": "discipline", "label": {"de": "Disziplin"}}],
+            },
+        }
+    )
+    assert "Rollenfamilien: Frontkaempfer" in rendered
+    assert "Magieschulen: Licht" in rendered
+    assert "Zweiter Ring: Willenskraft" in rendered
 
 
 def test_matrix_health_report_surfaces_rollups_and_hotspots() -> None:

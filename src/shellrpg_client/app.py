@@ -1,4 +1,4 @@
-# ShellRPG Datei-Banner | Terminal-Client v0.7.6 | Deutsch kommentiert
+# ShellRPG Datei-Banner | Terminal-Client v0.8.0 | Deutsch kommentiert
 from __future__ import annotations
 
 import argparse
@@ -9,8 +9,9 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from shellrpg_client.terminal_layout import (
 )
 from shellrpg_client.version import RELEASE_VERSION
 from shellrpg_client.ui import (
+    status_countdown,
     render_buffs,
     render_city,
     render_combat,
@@ -42,7 +44,9 @@ from shellrpg_client.ui import (
     render_quests,
 )
 
-HEADER_ROWS = 4
+STATUS_ROWS = 5
+ANIMATION_ROWS = 1
+HEADER_ROWS = ANIMATION_ROWS + STATUS_ROWS
 PROFILE_PATH = Path.home() / ".shellrpg-client-profile.json"
 GAME_VERBS = {
     "look", "inspect", "walk", "explore", "hunt", "gather", "map", "inventory", "equipment", "buffs", "quests",
@@ -52,13 +56,14 @@ GAME_VERBS = {
     "quest", "pet", "summon", "townfolk", "server", "recovery", "weather", "weave", "dialogue", "talk", "service",
 }
 ANSI = "\x1b["
-SPINNERS = ["● ○ ○ ○ ○", "● ● ○ ○ ○", "● ● ● ○ ○", "● ● ● ● ○", "● ● ● ● ●"]
+SPINNERS = ["[#....]", "[##...]", "[###..]", "[####.]", "[#####]"]
 CHARACTER_FACTIONS = ["Menschen", "Amazonen", "Waldelfen", "Dryaden", "Baumwesen", "Nekari", "Ssarathi", "Salzlungen", "Orks", "Dämonen"]
 CHARACTER_RACES = ["Mensch", "Nekari", "Ssarathi", "Salzlunge", "Waldelf", "Dryade", "Baumwesen"]
 CHARACTER_CLASSES = ["Ritter", "Totenbeschwörer", "Kleriker", "Waldläufer", "Magier", "Dieb", "Beastmaster"]
 CHARACTER_COMMAND_ALIASES = {"character", "char", "chars"}
 CONTROL_COMMAND_ALIASES = {"control", "controller"}
 MATRIX_COMMAND_ALIASES = {"matrix"}
+CATALOG_COMMAND_ALIASES = {"catalog", "glossary"}
 OBSERVER_SAFE_COMMAND_PATTERNS = (
     "showcommands",
     "show commands",
@@ -119,6 +124,7 @@ ACCENT_CODE = "38;5;136"
 TITLE_CODE = "38;5;178"
 SHADOW_CODE = "38;5;58"
 MATRIX_HEALTH_REFRESH_SECONDS = 12.0
+LIVE_ANIMATION_REFRESH_SECONDS = 1.0
 
 
 # Aktiviert unter Windows nach Möglichkeit ANSI-Escapes für Cursorbewegung und Farben.
@@ -534,6 +540,15 @@ def is_matrix_command(raw: str) -> bool:
     if not raw:
         return False
     return raw.strip().split()[0].lower() in MATRIX_COMMAND_ALIASES
+
+
+# Erkennt lokale Catalog-/Glossarbefehle fuer denselben serverseitigen Social-Catalog-Vertrag wie WWW.
+def is_catalog_command(raw: str) -> bool:
+    normalized = normalize_command_query(raw)
+    if not normalized:
+        return False
+    first = normalized.split()[0]
+    return first in CATALOG_COMMAND_ALIASES or normalized.startswith("social catalog")
 
 
 # Normalisiert einen eingegebenen Befehl fuer lokale Alias- und Sicherheitspruefungen.
@@ -1434,6 +1449,87 @@ def handle_matrix_command(raw: str, api: ApiClient) -> bool:
     return True
 
 
+def _catalog_label(entry: dict[str, Any]) -> str:
+    label = entry.get("label", {})
+    if isinstance(label, dict):
+        return str(label.get("de") or label.get("en") or entry.get("entry_id", ""))
+    return str(label or entry.get("entry_id", ""))
+
+
+def _catalog_group_line(title: str, entries: Any, limit: int = 8) -> str:
+    if not isinstance(entries, list) or not entries:
+        return f"{title}: —"
+    labels = [_catalog_label(dict(entry or {})) for entry in entries[:limit]]
+    hidden = max(0, len(entries) - limit)
+    suffix = f" (+{hidden})" if hidden else ""
+    return f"{title}: {', '.join(labels)}{suffix}"
+
+
+def format_social_catalog_report(catalog: dict[str, Any], topic: str = "") -> str:
+    combat = dict(catalog.get("rev88_combat_glossary", {}))
+    attributes = dict(catalog.get("rev88_attribute_glossary", {}))
+    normalized_topic = normalize_command_query(topic)
+    lines = [color("=== Social Catalog · rev88 Glossar ===", "36")]
+    if not catalog.get("ok", True):
+        lines.append(str(catalog.get("message", "Social-Catalog nicht verfuegbar.")))
+        return "\n".join(lines)
+    if normalized_topic in {"", "all", "combat", "kampf"}:
+        lines.extend(
+            [
+                _catalog_group_line("Kernklassen", combat.get("core_classes"), limit=10),
+                _catalog_group_line("Rollenfamilien", combat.get("role_families")),
+                _catalog_group_line("Magieschulen", combat.get("magic_schools")),
+                _catalog_group_line("Stealth-Archetypen", combat.get("stealth_archetypes")),
+                _catalog_group_line("Support-Archetypen", combat.get("support_archetypes")),
+            ]
+        )
+    if normalized_topic in {"", "all", "attributes", "attribute", "attr", "attribute ring", "attribute-ring"}:
+        lines.extend(
+            [
+                _catalog_group_line("Primaerring", attributes.get("primary_ring")),
+                _catalog_group_line("Zweiter Ring", attributes.get("second_ring")),
+                _catalog_group_line("Runtime-Bruecken", attributes.get("runtime_bridge_terms")),
+                _catalog_group_line("Legacy-Begriffe", attributes.get("legacy_external_terms")),
+            ]
+        )
+    if len(lines) == 1:
+        lines.append("Nutzung: catalog, catalog combat, catalog attributes")
+    return "\n".join(lines)
+
+
+def catalog_command_tree() -> str:
+    return "\n".join(
+        [
+            color("=== Catalog Command Tree ===", "36"),
+            "catalog",
+            "  Zeigt Kampf- und Attributglossar aus `/api/social/catalog`.",
+            "catalog combat",
+            "  Zeigt Rollenfamilien, Magieschulen und Archetypen.",
+            "catalog attributes",
+            "  Zeigt Primaerring, zweiten Ring und Anschlussbegriffe.",
+        ]
+    )
+
+
+def handle_catalog_command(raw: str, api: ApiClient) -> bool:
+    if not is_catalog_command(raw):
+        return False
+    normalized = normalize_command_query(raw)
+    parts = normalized.split()
+    if normalized.startswith("social catalog"):
+        parts = ["catalog", *parts[2:]]
+    action = parts[1] if len(parts) > 1 else ""
+    if action in {"help", "tree", "--help", "-h", "?"}:
+        print(catalog_command_tree())
+        return True
+    try:
+        print(format_social_catalog_report(api.social_catalog(), topic=action))
+    except Exception as exc:
+        print(f"Social-Catalog nicht verfuegbar: {exc}")
+        print("Der private ShellRPG-server muss `/api/social/catalog` bereitstellen.")
+    return True
+
+
 # Erkennt, ob der eingegebene Text als Spielkommando und nicht als normales Shell-Kommando behandelt werden soll.
 def is_game_command(raw: str) -> bool:
     if not raw:
@@ -1485,7 +1581,80 @@ def venus_scale(label: str) -> str:
     return "◑"
 
 
-# Erzeugt die vier kompakten Statuszeilen und kuerzt sie strikt auf genau eine physische Terminalzeile ein.
+def _safe_int(value: Any, fallback: int = 0) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _meter(current: int, maximum: int, width: int = 10) -> str:
+    if maximum <= 0:
+        return "[" + ("." * width) + "]"
+    filled = max(0, min(width, round((current / maximum) * width)))
+    return "[" + ("#" * filled) + ("." * (width - filled)) + "]"
+
+
+def _status_token(label: str, value: str, code: str) -> str:
+    return color(f"{label} {value}", code)
+
+
+def _hp_code(current: int, maximum: int) -> str:
+    if maximum <= 0:
+        return "38;5;245"
+    ratio = current / maximum
+    if ratio <= 0.30:
+        return "38;5;196"
+    if ratio <= 0.65:
+        return "38;5;214"
+    return "38;5;82"
+
+
+def _activity_code(status: dict) -> str:
+    action = str(status.get("activity_type") or status.get("active_action") or "idle").lower()
+    if _safe_int(status.get("reaction_seconds_left")) > 0 or action == "combat":
+        return "38;5;196"
+    if action in {"walk", "travel"}:
+        return "38;5;81"
+    if action in {"gather", "hunt", "fish"}:
+        return "38;5;220"
+    if action in {"idle", ""}:
+        return "38;5;108"
+    return "38;5;141"
+
+
+def _activity_label(status: dict) -> str:
+    action = str(status.get("activity_type") or status.get("active_action") or "idle")
+    if _safe_int(status.get("reaction_seconds_left")) > 0:
+        return "Combat"
+    if action == "walk":
+        return "Reise"
+    if action == "gather" and status.get("activity_resource_type") == "gold":
+        return "Goldzyklus"
+    if action == "idle":
+        return "Idle"
+    return action.title()
+
+
+def _activity_animation_line(status: dict, spinner_index: int, columns: int) -> str:
+    renderer = detect_media_renderer()
+    spinner = SPINNERS[spinner_index % len(SPINNERS)]
+    label = _activity_label(status)
+    countdown = status_countdown(status)
+    media = str(status.get("media_terminal_file") or "").strip()
+    media_label = Path(media).name if media else ""
+    if renderer and media_label:
+        base = f"ANIM {renderer}::{media_label} {spinner} {label}"
+    elif renderer:
+        base = f"ANIM {renderer} {spinner} {label}"
+    else:
+        base = f"ANIM ASCII {spinner} {label}"
+    if countdown:
+        base = f"{base} | {countdown}"
+    return fit_plain_terminal_line(color(base, "38;5;147"), columns)
+
+
+# Erzeugt die feste Terminal-HUD-Flaeche: eine Animationszeile plus fuenf Statuszeilen.
 def compact_status_lines(
     snapshot: dict,
     spinner_index: int,
@@ -1494,20 +1663,38 @@ def compact_status_lines(
 ) -> list[str]:
     width = columns or shutil.get_terminal_size((100, 30)).columns
     status = snapshot["status"]
-    action = status.get("active_action", "idle")
+    action = str(status.get("activity_type") or status.get("active_action") or "idle")
+    countdown = status_countdown(status)
+    action_line = f"{_activity_label(status)} | {countdown}" if countdown else _activity_label(status)
     overlay = status.get("overlay_message", "") or f"Aktiv: {action}"
     location = status.get("location_label", "?")
-    if action in {"idle", ""}:
-        live = f"Dein Ritter macht gerade nichts ... {SPINNERS[spinner_index % len(SPINNERS)]} [{location}]"
-    else:
-        live = f"{overlay} {SPINNERS[spinner_index % len(SPINNERS)]}"
+    hp_current = _safe_int(status.get("hp_current"))
+    hp_max = _safe_int(status.get("hp_max"), 1)
+    mp_current = _safe_int(status.get("mana_current"))
+    mp_max = _safe_int(status.get("mana_max"), 1)
+    hp_code = _hp_code(hp_current, hp_max)
+    activity = _status_token("ACT", action_line, _activity_code(status))
+    pulse = _status_token("PULSE", f"{_safe_int(status.get('visible_status_pulse_seconds'), 5)}s", "38;5;244")
+    tick = _status_token("TICK", str(status.get("tick_value", "?")), "38;5;244")
+    hp = f"{color('<3', '38;5;196')} {_status_token('HP', f'{hp_current}/{hp_max} {_meter(hp_current, hp_max)}', hp_code)}"
+    mp = _status_token("MP", f"{mp_current}/{mp_max} {_meter(mp_current, mp_max)}", "38;5;75")
+    money = f"{_status_token('AU', str(status.get('gold', 0)), '38;5;220')} {_status_token('AG', str(status.get('silver', 0)), '38;5;250')}"
+    hunger = _status_token("HUNGER", str(status.get("hunger", "?")), "38;5;208")
+    weather = _status_token("WETTER", str(status.get("weather_label", "?")), "38;5;111")
+    clock = _status_token("ZEIT", str(status.get("time_label", "?")), "38;5;153")
+    auto = _status_token("AUTO", "an" if status.get("auto_battle_enabled") else "aus", "38;5;203" if status.get("auto_battle_enabled") else "38;5;245")
+    matrix = _status_token("MATRIX", compact_matrix_health_hint(matrix_snapshot), "38;5;141")
+    cosmos = f"{_status_token('MOND', str(status.get('moon_label', '?')), '38;5;153')} {_status_token('VENUS', str(status.get('venus_label', '?')), '38;5;218')}"
+    identity = f"{_status_token('CHAR', str(status.get('character_name', '?')), '38;5;229')} {_status_token('LVL', str(status.get('level', '?')), '38;5;220')} {status.get('class_name', '?')}/{status.get('race_name', '?')}"
     lines = [
-        live,
-        f"[ {status['character_name']} | {status['class_name']}/{status['race_name']} | Lvl {status['level']} | {location} [{status['coords_label']}] | HP {status['hp_current']}/{status['hp_max']} | MP {status['mana_current']}/{status['mana_max']} ]",
-        f"[ {status['gold']} Gold / {status['silver']} Silber | Hunger: {status['hunger']} | Wetter: {status.get('weather_label','?')} | Zeit: {status.get('time_label','?')} ]",
-        f"[ Mond: {moon_scale(status.get('moon_label','?'))} {status.get('moon_label','?')} | Venus: {venus_scale(status.get('venus_label','?'))} {status.get('venus_label','?')} | Aktion: {action} | Auto-Battle: {'an' if status.get('auto_battle_enabled') else 'aus'} | {compact_matrix_health_hint(matrix_snapshot)} ]",
+        _activity_animation_line(status, spinner_index, width),
+        fit_plain_terminal_line(f"{activity} {pulse} {tick} | {color(overlay, '38;5;180')}", width),
+        fit_plain_terminal_line(f"{identity} | ORT {location} [{status.get('coords_label', '?')}]", width),
+        fit_plain_terminal_line(f"{hp} | {mp} | {money} | {hunger}", width),
+        fit_plain_terminal_line(f"{weather} | {clock}", width),
+        fit_plain_terminal_line(f"{cosmos} | {auto} | {matrix}", width),
     ]
-    return [fit_plain_terminal_line(line, width) for line in lines]
+    return lines[:HEADER_ROWS]
 
 
 @dataclass
@@ -1518,6 +1705,7 @@ class LiveContext:
     last_media_file: str = ""
     matrix_snapshot: dict[str, Any] | None = None
     last_matrix_refresh_ts: float = 0.0
+    render_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
 
 def refresh_matrix_health(api: ApiClient, context: LiveContext, force: bool = False) -> None:
@@ -1542,14 +1730,58 @@ def refresh_live_context(api: ApiClient, context: LiveContext) -> None:
 
 
 # Rendert HUD und Prompt kontrolliert oberhalb der Shell-Zeile und kuerzt dabei alle UI-Zeilen auf die Terminalbreite.
-def render_live_prompt(renderer: ReservedTerminalRenderer, context: LiveContext, cwd: Path) -> None:
+def render_live_prompt(
+    renderer: ReservedTerminalRenderer,
+    context: LiveContext,
+    cwd: Path,
+    *,
+    reserve_rows: bool = True,
+    write_prompt: bool = True,
+) -> None:
     columns = renderer.terminal_size().columns
-    renderer.reserve(HEADER_ROWS)
+    if reserve_rows:
+        renderer.reserve(HEADER_ROWS)
     renderer.draw_above_anchor(
         compact_status_lines(context.snapshot, context.spinner_index, columns, matrix_snapshot=context.matrix_snapshot),
         HEADER_ROWS,
     )
-    renderer.write_prompt(format_shell_prompt(cwd, columns))
+    if write_prompt:
+        renderer.write_prompt(format_shell_prompt(cwd, columns))
+
+
+def _status_pulse_seconds(snapshot: dict) -> float:
+    status = snapshot.get("status", {}) if isinstance(snapshot, dict) else {}
+    return float(max(1, _safe_int(status.get("visible_status_pulse_seconds"), 5)))
+
+
+def start_live_status_pulse(
+    api: ApiClient,
+    context: LiveContext,
+    renderer: ReservedTerminalRenderer,
+    cwd_ref: dict[str, Path],
+) -> tuple[threading.Event, threading.Thread | None]:
+    if not sys.stdin.isatty():
+        return threading.Event(), None
+    stop_event = threading.Event()
+
+    def pulse_loop() -> None:
+        next_server_refresh = time.monotonic() + _status_pulse_seconds(context.snapshot)
+        while not stop_event.wait(LIVE_ANIMATION_REFRESH_SECONDS):
+            with context.render_lock:
+                context.spinner_index = (context.spinner_index + 1) % len(SPINNERS)
+                now = time.monotonic()
+                if now >= next_server_refresh:
+                    try:
+                        context.snapshot = api.state()
+                        refresh_matrix_health(api, context)
+                    except Exception:
+                        pass
+                    next_server_refresh = now + _status_pulse_seconds(context.snapshot)
+                render_live_prompt(renderer, context, cwd_ref["path"], reserve_rows=False, write_prompt=False)
+
+    thread = threading.Thread(target=pulse_loop, name="shellrpg-live-status-pulse", daemon=True)
+    thread.start()
+    return stop_event, thread
 
 
 # Erkennt optionale Terminal-Bildrenderer und gibt deren Namen zurück.
@@ -1695,6 +1927,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
         if handle_matrix_command(args.command, api):
             return 0
+        if handle_catalog_command(args.command, api):
+            return 0
         handled, snapshot = handle_control_command(args.command, api)
         if handled:
             if snapshot is not None:
@@ -1709,15 +1943,23 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     cwd = current_cwd
+    cwd_ref = {"path": cwd}
     media_renderer = detect_media_renderer()
     print(color("Spielbefehle und Shell-Befehle teilen sich jetzt denselben Prompt. 'quit' oder 'exit' beendet nur den Client.", "90"))
     while True:
+        with context.render_lock:
+            try:
+                refresh_live_context(api, context)
+            except Exception:
+                pass
+            render_live_prompt(renderer, context, cwd)
+        stop_pulse, pulse_thread = start_live_status_pulse(api, context, renderer, cwd_ref)
         try:
-            refresh_live_context(api, context)
-        except Exception:
-            pass
-        render_live_prompt(renderer, context, cwd)
-        raw = input("").strip()
+            raw = input("").strip()
+        finally:
+            stop_pulse.set()
+            if pulse_thread is not None:
+                pulse_thread.join(timeout=1.2)
         if raw.lower() in {"quit", "exit"}:
             print("Sitzung beendet.")
             return 0
@@ -1740,6 +1982,8 @@ def main(argv: list[str] | None = None) -> int:
             continue
         if handle_matrix_command(raw, api):
             continue
+        if handle_catalog_command(raw, api):
+            continue
         control_handled, snapshot = handle_control_command(raw, api)
         if control_handled:
             if snapshot is not None:
@@ -1757,6 +2001,7 @@ def main(argv: list[str] | None = None) -> int:
             print_command_feedback(snapshot, raw, media_renderer)
             continue
         cwd, shell_output = run_shell_command(raw, cwd, capture_output=False)
+        cwd_ref["path"] = cwd
         if shell_output:
             print(shell_output)
         else:

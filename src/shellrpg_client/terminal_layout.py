@@ -21,24 +21,52 @@ def strip_ansi(text: str) -> str:
 
 # Begrenzt einen Text auf eine sichtbare Zielbreite und hängt bei Bedarf eine Ellipse an.
 def fit_text_width(text: str, max_visible: int) -> str:
-    clean = strip_ansi(text).replace("\r", " ").replace("\n", " ")
+    inline = str(text).replace("\r", " ").replace("\n", " ")
+    clean = strip_ansi(inline)
     if max_visible <= 0:
         return ""
     if len(clean) <= max_visible:
-        return clean
+        return inline
     if max_visible <= len(ELLIPSIS):
         return clean[:max_visible]
-    return clean[: max_visible - len(ELLIPSIS)] + ELLIPSIS
+    limit = max_visible - len(ELLIPSIS)
+    visible = 0
+    pos = 0
+    parts: list[str] = []
+    saw_ansi = False
+    for match in ANSI_PATTERN.finditer(inline):
+        chunk = inline[pos:match.start()]
+        take = max(0, min(len(chunk), limit - visible))
+        if take:
+            parts.append(chunk[:take])
+            visible += take
+        if visible >= limit:
+            break
+        parts.append(match.group(0))
+        saw_ansi = True
+        pos = match.end()
+    if visible < limit:
+        chunk = inline[pos:]
+        take = max(0, min(len(chunk), limit - visible))
+        if take:
+            parts.append(chunk[:take])
+            visible += take
+    reset = f"{ANSI}0m" if saw_ansi else ""
+    return "".join(parts) + reset + ELLIPSIS
 
 
 # Füllt einen Text nach dem Kürzen auf eine feste sichtbare Breite auf.
 def pad_text_width(text: str, max_visible: int, align: str = "left") -> str:
     fitted = fit_text_width(text, max_visible)
+    visible_len = len(strip_ansi(fitted))
+    padding = max(0, max_visible - visible_len)
     if align == "center":
-        return fitted.center(max_visible)
+        left = padding // 2
+        right = padding - left
+        return (" " * left) + fitted + (" " * right)
     if align == "right":
-        return fitted.rjust(max_visible)
-    return fitted.ljust(max_visible)
+        return (" " * padding) + fitted
+    return fitted + (" " * padding)
 
 
 # Kürzt eine Terminalzeile so, dass sie garantiert innerhalb einer physischen Konsolenzeile bleibt.
