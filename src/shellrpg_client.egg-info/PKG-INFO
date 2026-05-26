@@ -99,6 +99,15 @@ Aktuelle Kanonvorbereitung:
 - dieselbe Matrix-Gesundheit erscheint jetzt auch als kompakter `Mx:`-
   Hinweis in der laufenden HUD-Zeile, ohne den Shell-Prompt oder den
   eigentlichen Spiel-Snapshot zu verdrängen
+- der Terminal-Client konsumiert jetzt die Sekundenfelder des V076-
+  Public-Statusvertrags und zeigt echte Countdowns fuer Reise,
+  Goldzyklus, Combat-Reaktionsfenster und Idle-Drop, waehrend der Server
+  intern im `1s`-Tick und sichtbar im `5s`-Statuspuls bleibt
+- die laufende Shell-UI nutzt jetzt ein festes Live-HUD: ueber dem Prompt
+  stehen eine optionale Aktivitaetsanimation und fuenf farbige ANSI-/ASCII-
+  Statuszeilen fuer Activity, Charakter, HP/MP/Ressourcen, Weltzeit und
+  Kosmos/Matrix; diese Zeilen aktualisieren sich auch ohne neue Eingabe im
+  sichtbaren Statuspuls
 
 ## 4. Feedback & Contribution
 
