@@ -17,7 +17,6 @@ coverage/
 tmp/
 *.tmp
 *.cache
-*.lock
 
 # --- Node / TypeScript / Frontend ---
 node_modules/
