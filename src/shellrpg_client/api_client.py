@@ -101,6 +101,21 @@ class ApiClient:
             except Exception as second_error:
                 raise ConnectionError(f"ShellRPG-Server antwortet nicht stabil: {second_error}") from second_error
 
+    # Liest einen textuellen API-Pfad und versucht bei Sitzungsproblemen genau einen Rejoin.
+    def _request_text(self, path: str) -> str:
+        req = request.Request(f"{self.base_url}{path}", headers=self._headers(), method="GET")
+        try:
+            with request.urlopen(req) as response:
+                return response.read().decode("utf-8")
+        except Exception as first_error:
+            self.login()
+            req = request.Request(f"{self.base_url}{path}", headers=self._headers(), method="GET")
+            try:
+                with request.urlopen(req) as response:
+                    return response.read().decode("utf-8")
+            except Exception as second_error:
+                raise ConnectionError(f"ShellRPG-Status antwortet nicht stabil: {second_error}") from second_error
+
     # Führt eine lesende GET-Anfrage aus.
     def get(self, path: str) -> dict:
         return self._request(path, "GET")
@@ -108,6 +123,10 @@ class ApiClient:
     # Holt den aktuellen öffentlichen Spielzustand.
     def state(self) -> dict:
         return self.get("/api/state")
+
+    # Holt die serverseitig formatierte Drei-Zeilen-Ansicht für Shell-Prompts.
+    def status_text(self) -> str:
+        return self._request_text("/api/status/text")
 
     # Sendet ein Spielkommando an den Server und liefert den neuen Zustands-Snapshot zurück.
     def post_command(self, command: str) -> dict:

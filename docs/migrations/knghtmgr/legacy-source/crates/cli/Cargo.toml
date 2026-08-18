@@ -1,0 +1,16 @@
+[package]
+name = "engine_cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+engine_core = { path = "../core" }
+tokio = { version = "1", features = ["full"] }
+crossterm = "0.27"
+unicode-width = "0.1"
+which = "6"
+anyhow = "1.0.72"
+
+[features]
+default = []
+caca = []
